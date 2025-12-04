@@ -15,11 +15,13 @@ import {
   Upload,
   Image as ImageIcon,
   ImagePlus,
+  MessageCircle,
 } from 'lucide-react';
 import { Button, Loading, Modal, Textarea, useToast, useConfirm } from '@/components/shared';
 import { MaterialGeneratorModal } from '@/components/shared/MaterialGeneratorModal';
 import { TemplateSelector } from '@/components/shared/TemplateSelector';
 import { SlideCard } from '@/components/preview/SlideCard';
+import { AgentWindow } from '@/components/preview/AgentWindow';
 import { useProjectStore } from '@/store/useProjectStore';
 import { getImageUrl } from '@/api/client';
 import { getPageImageVersions, setCurrentImageVersion, updateProject, uploadTemplate } from '@/api/endpoints';
@@ -71,6 +73,8 @@ export const SlidePreview: React.FC = () => {
   const [isExtraRequirementsExpanded, setIsExtraRequirementsExpanded] = useState(false);
   // 素材生成模态开关（模块本身可复用，这里只是示例入口）
   const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
+  // Agent窗口开关
+  const [isAgentWindowOpen, setIsAgentWindowOpen] = useState(false);
   // 每页编辑参数缓存（前端会话内缓存，便于重复执行）
   const [editContextByPage, setEditContextByPage] = useState<Record<string, {
     prompt: string;
@@ -104,6 +108,20 @@ export const SlidePreview: React.FC = () => {
       setExtraRequirements(currentProject.extra_requirements || '');
     }
   }, [currentProject]);
+
+  // Agent 窗口打开时，隐藏右下角 GitHub 图标
+  useEffect(() => {
+    if (isAgentWindowOpen) {
+      document.body.classList.add('hide-github-link');
+    } else {
+      document.body.classList.remove('hide-github-link');
+    }
+
+    // 组件卸载时清理
+    return () => {
+      document.body.classList.remove('hide-github-link');
+    };
+  }, [isAgentWindowOpen]);
 
   // 加载当前页面的历史版本
   useEffect(() => {
@@ -651,6 +669,14 @@ export const SlidePreview: React.FC = () => {
           >
             刷新
           </Button>
+          <Button
+            variant={isAgentWindowOpen ? 'primary' : 'secondary'}
+            size="sm"
+            icon={<MessageCircle size={18} />}
+            onClick={() => setIsAgentWindowOpen((prev) => !prev)}
+          >
+            {isAgentWindowOpen ? '关闭助手' : 'AI助手'}
+          </Button>
           <div className="relative">
             <Button
               variant="primary"
@@ -751,7 +777,7 @@ export const SlidePreview: React.FC = () => {
           </div>
         </aside>
 
-        {/* 右侧：大图预览 */}
+        {/* 中间：大图预览 */}
         <main className="flex-1 flex flex-col bg-gradient-to-br from-banana-50 via-white to-gray-50 min-w-0 overflow-hidden">
           {currentProject.pages.length === 0 ? (
             <div className="flex-1 flex items-center justify-center overflow-y-auto">
@@ -914,6 +940,16 @@ export const SlidePreview: React.FC = () => {
             </>
           )}
         </main>
+
+        {/* 右侧：Agent 窗口（嵌在页面内部） */}
+        {projectId && isAgentWindowOpen && (
+          <div className="h-full w-[25rem] border-l border-gray-200 bg-white">
+            <AgentWindow
+              isOpen={isAgentWindowOpen}
+              onClose={() => setIsAgentWindowOpen(false)}
+            />
+          </div>
+        )}
       </div>
 
       {/* 编辑对话框 */}

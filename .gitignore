@@ -1,4 +1,6 @@
 *.png
+*.webp
+*.jpg
 !frontend/public/templates/*.png
 *.md
 !README.md

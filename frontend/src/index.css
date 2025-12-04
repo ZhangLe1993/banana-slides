@@ -40,6 +40,11 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* 在预览页打开 Agent 时隐藏右下角 GitHub 图标 */
+body.hide-github-link a[aria-label="查看 GitHub 仓库"] {
+  display: none;
+}
+
 #root {
   min-height: 100vh;
 }

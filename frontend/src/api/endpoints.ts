@@ -432,3 +432,19 @@ export const deleteUserTemplate = async (templateId: string): Promise<ApiRespons
   return response.data;
 };
 
+// ===== Agent =====
+
+/**
+ * 与幻灯片编辑agent对话
+ */
+export const agentChat = async (
+  projectId: string,
+  message: string
+): Promise<ApiResponse<{ response: string; messages: any[] }>> => {
+  const response = await apiClient.post<ApiResponse<{ response: string; messages: any[] }>>(
+    `/api/projects/${projectId}/agent/chat`,
+    { message }
+  );
+  return response.data;
+};
+
