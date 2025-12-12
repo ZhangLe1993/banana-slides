@@ -529,7 +529,7 @@ export const Home: React.FC = () => {
           </h1>
           
           <p className="text-lg md:text-xl text-gray-600 max-w-2xl mx-auto font-light">
-            Vibe your PPT like vibing code
+            迈向 PPT 制作的全新时代
           </p>
 
           {/* 特性标签 */}
