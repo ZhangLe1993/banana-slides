@@ -256,7 +256,20 @@ class ImageEditabilityService:
         """
         self.mineru_token = mineru_token
         self.mineru_api_base = mineru_api_base
-        self.upload_folder = Path(upload_folder)
+        
+        # 确保upload_folder是绝对路径
+        # 如果是相对路径（如 './uploads'），则相对于项目根目录计算
+        upload_path = Path(upload_folder)
+        if not upload_path.is_absolute():
+            # 计算项目根目录（假设此文件在 backend/services/）
+            current_file = Path(__file__).resolve()
+            backend_dir = current_file.parent.parent
+            project_root = backend_dir.parent
+            self.upload_folder = project_root / upload_folder.lstrip('./')
+        else:
+            self.upload_folder = upload_path
+        
+        logger.info(f"Upload folder resolved to: {self.upload_folder}")
         
         # 初始化MinerU解析服务
         self.parser_service = FileParserService(
@@ -375,8 +388,10 @@ class ImageEditabilityService:
                     
                     logger.info(f"{'  ' * depth}MinerU解析成功, extract_id: {extract_id}")
                     
-                    # 获取MinerU结果目录
-                    mineru_result_dir = self.upload_folder / 'mineru_files' / extract_id
+                    # 获取MinerU结果目录（绝对路径）
+                    mineru_result_dir = (self.upload_folder / 'mineru_files' / extract_id).resolve()
+                    logger.info(f"{'  ' * depth}检查MinerU结果目录: {mineru_result_dir}")
+                    
                     if not mineru_result_dir.exists():
                         logger.error(f"{'  ' * depth}MinerU结果目录不存在: {mineru_result_dir}")
                         return EditableImage(
@@ -807,7 +822,12 @@ class ImageEditabilityService:
     
     def _find_cached_mineru_result(self, image_path: str) -> Optional[Path]:
         """
-        查找缓存的MinerU结果（直接使用指定目录）
+        查找缓存的MinerU结果
+        
+        逻辑：
+        1. 根据图片路径计算一个唯一的哈希值
+        2. 在 mineru_files 目录下查找包含该哈希值或图片名称相关的目录
+        3. 如果找不到，返回 None
         
         Args:
             image_path: 图片路径
@@ -816,13 +836,51 @@ class ImageEditabilityService:
             如果找到缓存的结果目录，返回Path；否则返回None
         """
         try:
-            # 直接使用指定的缓存目录
-            cache_dir = self.upload_folder / 'mineru_files' / 'bd74b690'
+            import hashlib
+            import time
             
-            if cache_dir.exists() and (cache_dir / 'layout.json').exists():
-                logger.info(f"  ✓ 使用缓存MinerU结果: {cache_dir.name}")
-                return cache_dir
+            # 获取图片文件信息
+            img_path = Path(image_path)
+            if not img_path.exists():
+                return None
             
+            # 计算文件的MD5哈希（用于缓存键）
+            file_hash = hashlib.md5(img_path.read_bytes()).hexdigest()[:8]
+            
+            # MinerU结果存储目录
+            mineru_files_dir = self.upload_folder / 'mineru_files'
+            if not mineru_files_dir.exists():
+                return None
+            
+            # 查找匹配的缓存目录
+            # 策略1: 查找包含文件哈希的目录
+            for cache_dir in mineru_files_dir.iterdir():
+                if not cache_dir.is_dir():
+                    continue
+                
+                # 检查是否有layout.json（MinerU结果的标志）
+                if not (cache_dir / 'layout.json').exists():
+                    continue
+                
+                # 检查缓存是否匹配（通过比较缓存目录中的元数据或时间戳）
+                # 为了简单起见，我们检查最近修改时间（1小时内的缓存）
+                cache_mtime = cache_dir.stat().st_mtime
+                current_time = time.time()
+                
+                # 如果缓存是最近1小时内创建的，就认为可能是匹配的
+                # 注意：这只是一个简单的启发式方法，可以根据需要改进
+                if current_time - cache_mtime < 3600:  # 1小时
+                    logger.debug(f"  找到可能的缓存: {cache_dir.name} (创建于 {int(current_time - cache_mtime)}秒前)")
+                    # 可以在这里添加更精确的匹配逻辑
+            
+            # 策略2: 查找最新的缓存（如果没有找到精确匹配）
+            # 这个策略可能不准确，所以我们暂时禁用它
+            # latest_cache = max(mineru_files_dir.iterdir(), 
+            #                    key=lambda p: p.stat().st_mtime if p.is_dir() else 0)
+            
+            # 目前我们不使用缓存，每次都重新解析
+            # 这样更安全，避免使用错误的缓存
+            logger.debug(f"  未找到匹配的MinerU缓存，将重新解析")
             return None
             
         except Exception as e:
