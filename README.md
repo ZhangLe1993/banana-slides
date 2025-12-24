@@ -14,8 +14,9 @@
 
 [![Version](https://img.shields.io/badge/version-v0.1.0-4CAF50.svg)](https://github.com/Anionex/banana-slides)
 ![Docker](https://img.shields.io/badge/Docker-Build-2496ED?logo=docker&logoColor=white)
-[![License](https://img.shields.io/github/license/Anionex/banana-slides?color=FFD54F)](https://github.com/Anionex/banana-slides/blob/main/LICENSE)
-![PRs Welcome](https://img.shields.io/badge/PRs-welcome-42b883.svg)
+[![GitHub issues](https://img.shields.io/github/issues-raw/Anionex/banana-slides)](https://github.com/Anionex/banana-slides/issues)
+[![GitHub pull requests](https://img.shields.io/github/issues-pr-raw/Anionex/banana-slides)](https://github.com/Anionex/banana-slides/pulls)
+
 
 </p> 
 
@@ -122,6 +123,7 @@
 | ✅ 已完成 | 素材模块: 素材生成、上传等 |
 | ✅ 已完成 | 支持多种文件的上传+解析 |
 | ✅ 已完成 | 支持Vibe口头调整大纲和描述 |
+| ✅ 已完成 | 支持初步可编辑版pptx文件导出（mineru） |
 | 🔄 进行中 | 支持已生成图片的元素分割和进一步编辑（segment + inpaint） |
 | 🔄 进行中 | 网络搜索 |
 | 🔄 进行中 | Agent 模式 |
@@ -182,11 +184,22 @@ OPENAI_API_BASE=https://api.openai.com/v1
 docker compose up -d
 ```
 
+> [!TIP]
+> 如遇网络问题，可在 `.env` 文件中取消镜像源配置的注释, 再重新运行启动命令：
+> ```env
+> # 在 .env 文件中取消以下注释即可使用国内镜像源
+> DOCKER_REGISTRY=docker.1ms.run/
+> GHCR_REGISTRY=ghcr.nju.edu.cn/
+> APT_MIRROR=mirrors.aliyun.com
+> PYPI_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple
+> NPM_REGISTRY=https://registry.npmmirror.com/
+> ```
+
+
 3. **访问应用**
 
 - 前端：http://localhost:3000
 - 后端 API：http://localhost:5000
-
 
 4. **查看日志**
 
@@ -292,10 +305,12 @@ npm install
 
 
 #### 启动后端服务
+> （可选）如果本地已有重要数据，升级前建议先备份数据库：  
+> `cp backend/instance/database.db backend/instance/database.db.bak`
 
 ```bash
 cd backend
-uv run python app.py
+uv run alembic upgrade head && uv run python app.py
 ```
 
 后端服务将在 `http://localhost:5000` 启动。
@@ -430,10 +445,29 @@ banana-slides/
 ├── uv.lock                     # uv依赖锁定文件
 ├── docker-compose.yml          # Docker Compose配置
 ├── .env.example                 # 环境变量示例
-├── LICENSE                     # MIT许可证
+├── LICENSE                     # 许可证
 └── README.md                   # 本文件
 ```
 
+## 交流群
+为了方便大家沟通互助，建此微信交流群.
+
+欢迎提出新功能建议或反馈，本人也会~~佛系~~回答大家问题
+
+<img width="300"  alt="image" src="https://github.com/user-attachments/assets/0d4eb8cd-2c95-4f1c-aca2-2a656e6601a4" />
+
+**常见问题**
+1.  **支持免费层级的 Gemini API Key 吗？**
+    *   免费层级只支持文本生成，不支持图片生成。
+2.  **生成内容时提示 503 错误**
+    *   可以根据 README 中的命令查看 Docker 内部日志，定位 503 问题的详细报错，一般是模型配置不正确导致。
+3.  **.env 中设置了 API Key 之后，为什么不生效？**
+    1.  运行时编辑.env需要重启 Docker 容器以应用更改。
+    2.  如果曾在网页设置页中设置，会覆盖 `.env` 中参数，可通过“还原默认设置”还原到 `.env`。
+4.  **生成页面文字有乱码**
+    *   可以尝试更高分辨率的输出（openai格式可能不支持调高分辨率）
+    *   确保在页面描述中包含具体要渲染的文字内容
+  
 
 ## 🤝 贡献指南
 
@@ -445,7 +479,34 @@ banana-slides/
 
 ## 📄 许可证
 
-MIT
+本项目采用 CC BY-NC-SA 4.0 协议进行开源，
+
+可自由用于个人学习、研究、试验、教育或非营利科研活动等非商业用途；
+
+<details> 
+
+<summary> 详情 </summary>
+本项目开源协议为非商业许可（CC BY-NC-SA），  
+任何商业使用均需取得商业授权。
+
+**商业使用**包括但不限于以下场景：
+
+1. 企业或机构内部使用：
+
+2. 对外服务：
+
+3. 其他营利目的使用：
+
+**非商业使用示例**（无需商业授权）：
+
+- 个人学习、研究、试验、教育或非营利科研活动；
+- 开源社区贡献、个人作品展示等不产生经济收益的用途。
+
+> 注：若对使用场景有疑问，请联系作者获取授权许可。
+
+</details>
+
+
 
 <h2>🚀 Sponsor / 赞助 </h2>
 
@@ -456,6 +517,26 @@ MIT
 <p>感谢AIHubMix对本项目的赞助</p>
 </div>
 
+## 致谢
+
+- 项目贡献者们：
+
+[![Contributors](https://contrib.rocks/image?repo=Anionex/banana-slides)](https://github.com/Anionex/banana-slides/graphs/contributors)
+
+- [Linux.do](https://linux.do/): 新的理想型社区
+  
+## 赞赏
+
+开源不易🙏如果本项目对你有价值，欢迎请开发者喝杯咖啡☕️
+
+<img width="240" alt="image" src="https://github.com/user-attachments/assets/fd7a286d-711b-445e-aecf-43e3fe356473" />
+
+- 感谢以下朋友对项目的无偿赞助支持：
+> - 来自 @azazo1 的 ￥50
+> - 来自 @🍟 的 ￥20
+> - 来自 @苍何 的 ￥10
+- 如对赞助列表有疑问（如赞赏后没看到您的名字），欢迎<a href="mailto:anionex@qq.com">联系作者</a>
+ 
 ## 📈 项目统计
 
 <a href="https://www.star-history.com/#Anionex/banana-slides&type=Timeline&legend=top-left">

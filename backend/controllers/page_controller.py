@@ -87,7 +87,6 @@ def delete_page(project_id, page_id):
             return not_found('Page')
         
         # Delete page image if exists
-        from flask import current_app
         file_service = FileService(current_app.config['UPLOAD_FOLDER'])
         file_service.delete_page_image(project_id, page_id)
         
@@ -210,6 +209,7 @@ def generate_page_description(project_id, page_id):
         
         data = request.get_json() or {}
         force_regenerate = data.get('force_regenerate', False)
+        language = data.get('language', current_app.config.get('OUTPUT_LANGUAGE', 'zh'))
         
         # Check if already generated
         if page.get_description_content() and not force_regenerate:
@@ -232,7 +232,6 @@ def generate_page_description(project_id, page_id):
                 outline.append(page_data)
         
         # Initialize AI service
-        from flask import current_app
         ai_service = AIService()
         
         # Get reference files content and create project context
@@ -249,7 +248,8 @@ def generate_page_description(project_id, page_id):
             project_context,
             outline,
             page_data,
-            page.order_index + 1
+            page.order_index + 1,
+            language=language
         )
         
         # Save description
@@ -295,6 +295,7 @@ def generate_page_image(project_id, page_id):
         data = request.get_json() or {}
         use_template = data.get('use_template', True)
         force_regenerate = data.get('force_regenerate', False)
+        language = data.get('language', current_app.config.get('OUTPUT_LANGUAGE', 'zh'))
         
         # Check if already generated
         if page.generated_image_path and not force_regenerate:
@@ -354,7 +355,6 @@ def generate_page_image(project_id, page_id):
             })
         
         # Initialize services
-        from flask import current_app
         ai_service = AIService()
         
         file_service = FileService(current_app.config['UPLOAD_FOLDER'])
@@ -424,7 +424,8 @@ def generate_page_image(project_id, page_id):
             current_app.config['DEFAULT_ASPECT_RATIO'],
             current_app.config['DEFAULT_RESOLUTION'],
             app,
-            project.extra_requirements
+            project.extra_requirements,
+            language
         )
         
         # Return task_id immediately
@@ -474,7 +475,6 @@ def edit_page_image(project_id, page_id):
             return not_found('Project')
         
         # Initialize services
-        from flask import current_app
         ai_service = AIService()
         
         file_service = FileService(current_app.config['UPLOAD_FOLDER'])

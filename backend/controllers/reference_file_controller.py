@@ -64,12 +64,13 @@ def _parse_file_async(file_id: str, file_path: str, filename: str, app):
                 google_api_base=current_app.config.get('GOOGLE_API_BASE', ''),
                 openai_api_key=current_app.config.get('OPENAI_API_KEY', ''),
                 openai_api_base=current_app.config.get('OPENAI_API_BASE', ''),
-                image_caption_model=current_app.config['IMAGE_CAPTION_MODEL']
+                image_caption_model=current_app.config['IMAGE_CAPTION_MODEL'],
+                provider_format=current_app.config.get('AI_PROVIDER_FORMAT', 'gemini')
             )
             
             # Parse file
             logger.info(f"Starting to parse file: {filename}")
-            batch_id, markdown_content, error_message, failed_image_count = parser.parse_file(file_path, filename)
+            batch_id, markdown_content, extract_id, error_message, failed_image_count = parser.parse_file(file_path, filename)
             
             # Update database
             reference_file.mineru_batch_id = batch_id

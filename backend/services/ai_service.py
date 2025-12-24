@@ -11,6 +11,7 @@ import requests
 from typing import List, Dict, Optional, Union
 from textwrap import dedent
 from PIL import Image
+from tenacity import retry, stop_after_attempt, retry_if_exception_type
 from .prompts import (
     get_outline_generation_prompt,
     get_outline_parsing_prompt,
@@ -76,10 +77,22 @@ class AIService:
             image_provider: Optional pre-configured ImageProvider. If None, created from factory.
         """
         config = get_config()
-        self.text_model = config.TEXT_MODEL
-        self.image_model = config.IMAGE_MODEL
+
+        # 优先使用 Flask app.config（可由 Settings 覆盖），否则回退到 Config 默认值
+        try:
+            from flask import current_app, has_app_context
+        except ImportError:
+            current_app = None  # type: ignore
+            has_app_context = lambda: False  # type: ignore
+
+        if has_app_context() and current_app and hasattr(current_app, "config"):
+            self.text_model = current_app.config.get("TEXT_MODEL", config.TEXT_MODEL)
+            self.image_model = current_app.config.get("IMAGE_MODEL", config.IMAGE_MODEL)
+        else:
+            self.text_model = config.TEXT_MODEL
+            self.image_model = config.IMAGE_MODEL
         
-        # Use provided providers or create from factory based on AI_PROVIDER_FORMAT env var
+        # Use provided providers or create from factory based on AI_PROVIDER_FORMAT (from Flask config or env var)
         self.text_provider = text_provider or get_text_provider(model=self.text_model)
         self.image_provider = image_provider or get_image_provider(model=self.image_model)
     
@@ -139,6 +152,37 @@ class AIService:
         
         return cleaned_text
     
+    @retry(
+        stop=stop_after_attempt(3),
+        retry=retry_if_exception_type((json.JSONDecodeError, ValueError)),
+        reraise=True
+    )
+    def generate_json(self, prompt: str, thinking_budget: int = 1000) -> Union[Dict, List]:
+        """
+        生成并解析JSON，如果解析失败则重新生成
+        
+        Args:
+            prompt: 生成提示词
+            thinking_budget: 思考预算
+            
+        Returns:
+            解析后的JSON对象（字典或列表）
+            
+        Raises:
+            json.JSONDecodeError: JSON解析失败（重试3次后仍失败）
+        """
+        # 调用AI生成文本
+        response_text = self.text_provider.generate_text(prompt, thinking_budget=thinking_budget)
+        
+        # 清理响应文本：移除markdown代码块标记和多余空白
+        cleaned_text = response_text.strip().strip("```json").strip("```").strip()
+        
+        try:
+            return json.loads(cleaned_text)
+        except json.JSONDecodeError as e:
+            logger.warning(f"JSON解析失败，将重新生成。原始文本: {cleaned_text[:200]}... 错误: {str(e)}")
+            raise
+    
     @staticmethod
     def _convert_mineru_path_to_local(mineru_path: str) -> Optional[str]:
         """
@@ -181,7 +225,7 @@ class AIService:
             logger.error(f"Failed to download image from {url}: {str(e)}")
             return None
     
-    def generate_outline(self, project_context: ProjectContext) -> List[Dict]:
+    def generate_outline(self, project_context: ProjectContext, language: str = None) -> List[Dict]:
         """
         Generate PPT outline from idea prompt
         Based on demo.py gen_outline()
@@ -192,15 +236,11 @@ class AIService:
         Returns:
             List of outline items (may contain parts with pages or direct pages)
         """
-        outline_prompt = get_outline_generation_prompt(project_context)
-        
-        response_text = self.text_provider.generate_text(outline_prompt, thinking_budget=1000)
-        
-        outline_text = response_text.strip().strip("```json").strip("```").strip()
-        outline = json.loads(outline_text)
+        outline_prompt = get_outline_generation_prompt(project_context, language)
+        outline = self.generate_json(outline_prompt, thinking_budget=1000)
         return outline
     
-    def parse_outline_text(self, project_context: ProjectContext) -> List[Dict]:
+    def parse_outline_text(self, project_context: ProjectContext, language: str = None) -> List[Dict]:
         """
         Parse user-provided outline text into structured outline format
         This method analyzes the text and splits it into pages without modifying the original text
@@ -211,12 +251,8 @@ class AIService:
         Returns:
             List of outline items (may contain parts with pages or direct pages)
         """
-        parse_prompt = get_outline_parsing_prompt(project_context)
-        
-        response_text = self.text_provider.generate_text(parse_prompt, thinking_budget=1000)
-        
-        outline_json = response_text.strip().strip("```json").strip("```").strip()
-        outline = json.loads(outline_json)
+        parse_prompt = get_outline_parsing_prompt(project_context, language)
+        outline = self.generate_json(parse_prompt, thinking_budget=1000)
         return outline
     
     def flatten_outline(self, outline: List[Dict]) -> List[Dict]:
@@ -238,7 +274,7 @@ class AIService:
         return pages
     
     def generate_page_description(self, project_context: ProjectContext, outline: List[Dict], 
-                                 page_outline: Dict, page_index: int) -> str:
+                                 page_outline: Dict, page_index: int, language='zh') -> str:
         """
         Generate description for a single page
         Based on demo.py gen_desc() logic
@@ -259,7 +295,8 @@ class AIService:
             outline=outline,
             page_outline=page_outline,
             page_index=page_index,
-            part_info=part_info
+            part_info=part_info,
+            language=language
         )
         
         response_text = self.text_provider.generate_text(desc_prompt, thinking_budget=1000)
@@ -283,7 +320,8 @@ class AIService:
     def generate_image_prompt(self, outline: List[Dict], page: Dict, 
                             page_desc: str, page_index: int, 
                             has_material_images: bool = False,
-                            extra_requirements: Optional[str] = None) -> str:
+                            extra_requirements: Optional[str] = None,
+                            language='zh') -> str:
         """
         Generate image generation prompt for a page
         Based on demo.py gen_prompts()
@@ -316,7 +354,8 @@ class AIService:
             outline_text=outline_text,
             current_section=current_section,
             has_material_images=has_material_images,
-            extra_requirements=extra_requirements
+            extra_requirements=extra_requirements,
+            language=language
         )
         
         return prompt
@@ -427,7 +466,7 @@ class AIService:
         )
         return self.generate_image(edit_instruction, current_image_path, aspect_ratio, resolution, additional_ref_images)
     
-    def parse_description_to_outline(self, project_context: ProjectContext) -> List[Dict]:
+    def parse_description_to_outline(self, project_context: ProjectContext, language='zh') -> List[Dict]:
         """
         从描述文本解析出大纲结构
         
@@ -437,15 +476,13 @@ class AIService:
         Returns:
             List of outline items (may contain parts with pages or direct pages)
         """
-        parse_prompt = get_description_to_outline_prompt(project_context)
-        
-        response_text = self.text_provider.generate_text(parse_prompt, thinking_budget=1000)
-        
-        outline_json = response_text.strip().strip("```json").strip("```").strip()
-        outline = json.loads(outline_json)
+        parse_prompt = get_description_to_outline_prompt(project_context, language)
+        outline = self.generate_json(parse_prompt, thinking_budget=1000)
         return outline
     
-    def parse_description_to_page_descriptions(self, project_context: ProjectContext, outline: List[Dict]) -> List[str]:
+    def parse_description_to_page_descriptions(self, project_context: ProjectContext, 
+                                               outline: List[Dict],
+                                               language='zh') -> List[str]:
         """
         从描述文本切分出每页描述
         
@@ -456,12 +493,8 @@ class AIService:
         Returns:
             List of page descriptions (strings), one for each page in the outline
         """
-        split_prompt = get_description_split_prompt(project_context, outline)
-        
-        response_text = self.text_provider.generate_text(split_prompt, thinking_budget=1000)
-        
-        descriptions_json = response_text.strip().strip("```json").strip("```").strip()
-        descriptions = json.loads(descriptions_json)
+        split_prompt = get_description_split_prompt(project_context, outline, language)
+        descriptions = self.generate_json(split_prompt, thinking_budget=1000)
         
         # 确保返回的是字符串列表
         if isinstance(descriptions, list):
@@ -471,7 +504,8 @@ class AIService:
     
     def refine_outline(self, current_outline: List[Dict], user_requirement: str,
                       project_context: ProjectContext,
-                      previous_requirements: Optional[List[str]] = None) -> List[Dict]:
+                      previous_requirements: Optional[List[str]] = None,
+                      language='zh') -> List[Dict]:
         """
         根据用户要求修改已有大纲
         
@@ -488,19 +522,17 @@ class AIService:
             current_outline=current_outline,
             user_requirement=user_requirement,
             project_context=project_context,
-            previous_requirements=previous_requirements
+            previous_requirements=previous_requirements,
+            language=language
         )
-        
-        response_text = self.text_provider.generate_text(refinement_prompt, thinking_budget=1000)
-        
-        outline_json = response_text.strip().strip("```json").strip("```").strip()
-        outline = json.loads(outline_json)
+        outline = self.generate_json(refinement_prompt, thinking_budget=1000)
         return outline
     
     def refine_descriptions(self, current_descriptions: List[Dict], user_requirement: str,
                            project_context: ProjectContext,
                            outline: List[Dict] = None,
-                           previous_requirements: Optional[List[str]] = None) -> List[str]:
+                           previous_requirements: Optional[List[str]] = None,
+                           language='zh') -> List[str]:
         """
         根据用户要求修改已有页面描述
         
@@ -519,13 +551,10 @@ class AIService:
             user_requirement=user_requirement,
             project_context=project_context,
             outline=outline,
-            previous_requirements=previous_requirements
+            previous_requirements=previous_requirements,
+            language=language
         )
-        
-        response_text = self.text_provider.generate_text(refinement_prompt, thinking_budget=1000)
-        
-        descriptions_json = response_text.strip().strip("```json").strip("```").strip()
-        descriptions = json.loads(descriptions_json)
+        descriptions = self.generate_json(refinement_prompt, thinking_budget=1000)
         
         # 确保返回的是字符串列表
         if isinstance(descriptions, list):

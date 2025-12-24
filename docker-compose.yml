@@ -1,10 +1,13 @@
-version: '3.8'
-
 services:
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      args:
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-}
+        GHCR_REGISTRY: ${GHCR_REGISTRY:-ghcr.io/}
+        APT_MIRROR: ${APT_MIRROR:-}
+        PYPI_INDEX_URL: ${PYPI_INDEX_URL:-}
     container_name: banana-slides-backend
     ports:
       # 宿主机端口:容器内部端口（由 PORT 控制，默认 5000）
@@ -37,6 +40,8 @@ services:
       args:
         DOCKER_BUILDKIT: 1
         VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-}
+        NPM_REGISTRY: ${NPM_REGISTRY:-}
     container_name: banana-slides-frontend
     ports:
       - "3000:80"
