@@ -5,6 +5,7 @@ Based on demo.py create_pptx_from_images()
 import os
 import json
 import logging
+import tempfile
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from textwrap import dedent
@@ -68,13 +69,92 @@ class ExportService:
             # Save the clean background to a temporary file
             with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
                 clean_bg_path = tmp_file.name
-                clean_bg_image.save(clean_bg_path, format='PNG')
+                clean_bg_image.save(clean_bg_path)
                 logger.info(f"Clean background saved to: {clean_bg_path}")
                 return clean_bg_path
         
         except Exception as e:
             logger.error(f"Error generating clean background: {str(e)}", exc_info=True)
             return None
+    
+    @staticmethod
+    def generate_clean_background_with_inpainting(
+        original_image_path: str, 
+        element_bboxes: List[Dict[str, Any]],
+        use_inpainting: bool = True
+    ) -> Optional[str]:
+        """
+        使用 inpainting 技术快速生成干净背景（移除文字、图标、图表等元素）
+        
+        Args:
+            original_image_path: 原始图片路径
+            element_bboxes: 元素边界框列表（从 MinerU 获取），格式：[{'bbox': [x0, y0, x1, y1], 'type': 'text/image'}, ...]
+            use_inpainting: 是否使用 inpainting（如果为 False 或失败则回退到原图）
+            
+        Returns:
+            生成的干净背景图片路径，如果失败则返回 None
+        """
+        try:
+            from PIL import Image
+            from config import get_config
+            
+            # 加载原图
+            original_image = Image.open(original_image_path)
+            logger.info(f"Loaded original image: {original_image.size}")
+            
+            # 如果没有元素或不使用 inpainting，返回原图
+            if not element_bboxes or not use_inpainting:
+                logger.info("No elements to remove or inpainting disabled, using original image")
+                return original_image_path
+            
+            # 提取所有需要消除的区域的 bbox
+            bboxes_to_remove = []
+            for element in element_bboxes:
+                bbox = element.get('bbox')
+                if bbox and len(bbox) == 4:
+                    # 转换为 (x1, y1, x2, y2) 格式
+                    bboxes_to_remove.append(tuple(bbox))
+            
+            if not bboxes_to_remove:
+                logger.info("No valid bboxes to remove, using original image")
+                return original_image_path
+            
+            logger.info(f"Found {len(bboxes_to_remove)} elements to remove using inpainting")
+            
+            # 尝试使用 inpainting 服务
+            config = get_config()
+            if not config.VOLCENGINE_ACCESS_KEY or not config.VOLCENGINE_SECRET_KEY:
+                logger.warning("Volcengine credentials not configured, falling back to original image")
+                return original_image_path
+            
+            from services.inpainting_service import InpaintingService
+            
+            service = InpaintingService()
+            clean_image = service.remove_regions_by_bboxes(
+                image=original_image,
+                bboxes=bboxes_to_remove,
+                expand_pixels=5,       # 略微扩大消除区域
+                merge_bboxes=False,    # 不合并bbox，保持原始区域
+                use_retry=True         # 启用重试机制
+            )
+            
+            if clean_image is None:
+                logger.warning("Inpainting failed, falling back to original image")
+                return original_image_path
+            
+            # 保存到临时文件
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
+                clean_bg_path = tmp_file.name
+                clean_image.save(clean_bg_path)
+                logger.info(f"Clean background with inpainting saved to: {clean_bg_path}")
+                return clean_bg_path
+                
+        except ImportError as e:
+            logger.warning(f"Inpainting service not available: {e}, using original image")
+            return original_image_path
+        except Exception as e:
+            logger.error(f"Error generating clean background with inpainting: {str(e)}", exc_info=True)
+            return original_image_path
     
     @staticmethod
     def create_pptx_from_images(image_paths: List[str], output_file: str = None) -> bytes:
@@ -268,6 +348,10 @@ class ExportService:
         logger.info(f"Loaded {len(content_list)} items from MinerU content_list")
         
         # Load layout.json for accurate coordinates
+        # ⚠️ 重要：坐标系统一致性
+        # - 本方法使用 layout.json 的 bbox 和 page_size（推荐方式）
+        # - 与 utils.coordinate_utils.CoordinateMapper 保持一致
+        # - mask 生成也必须使用相同的坐标系统（通过 coordinate_utils）
         layout_file = mineru_dir / 'layout.json'
         layout_data = None
         actual_page_width = slide_width_pixels
@@ -279,6 +363,7 @@ class ExportService:
                 with open(layout_file, 'r', encoding='utf-8') as f:
                     layout_data = json.load(f)
                     if 'pdf_info' in layout_data and len(layout_data['pdf_info']) > 0:
+                        # 使用第一页的尺寸作为默认值（多页可能有不同尺寸）
                         page_size = layout_data['pdf_info'][0].get('page_size')
                         if page_size and len(page_size) == 2:
                             actual_page_width, actual_page_height = page_size
@@ -630,4 +715,55 @@ class ExportService:
             )
         except Exception as e:
             logger.error(f"Failed to add image element: {str(e)}")
+    def generate_clean_background(original_image_path: str, ai_service, 
+                                   aspect_ratio: str = "16:9", 
+                                   resolution: str = "2K") -> Optional[str]:
+        """
+        生成干净背景图片（移除文字和图标）
+        
+        Args:
+            original_image_path: 原始图片路径
+            ai_service: AIService 实例
+            aspect_ratio: 图片宽高比
+            resolution: 图片分辨率
+            
+        Returns:
+            生成的干净背景图片路径，如果失败则返回 None
+        """
+        from services.prompts import get_clean_background_prompt
+        
+        try:
+            # 获取编辑指令
+            edit_prompt = get_clean_background_prompt()
+            
+            # 使用 AI 服务编辑图片，移除文字和图标
+            clean_image = ai_service.edit_image(
+                prompt=edit_prompt,
+                current_image_path=original_image_path,
+                aspect_ratio=aspect_ratio,
+                resolution=resolution
+            )
+            
+            if not clean_image:
+                logger.warning(f"Failed to generate clean background for {original_image_path}")
+                return None
+            
+            # 保存到临时文件
+            temp_dir = os.path.dirname(original_image_path)
+            temp_file = tempfile.NamedTemporaryFile(
+                dir=temp_dir,
+                suffix='.png',
+                delete=False
+            )
+            temp_path = temp_file.name
+            temp_file.close()
+            
+            clean_image.save(temp_path)
+            logger.debug(f"Clean background saved to: {temp_path}")
+            
+            return temp_path
+            
+        except Exception as e:
+            logger.error(f"Error generating clean background: {str(e)}", exc_info=True)
+            return None
 

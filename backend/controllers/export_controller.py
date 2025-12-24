@@ -2,7 +2,7 @@
 Export Controller - handles file export endpoints
 """
 from flask import Blueprint, request, current_app
-from models import db, Project, Page
+from models import db, Project, Page, Task
 from utils import error_response, not_found, bad_request, success_response
 from services import ExportService, FileService
 import os
@@ -151,31 +151,35 @@ def export_pdf(project_id):
         return error_response('SERVER_ERROR', str(e), 500)
 
 
-@export_bp.route('/<project_id>/export/editable-pptx', methods=['GET'])
+@export_bp.route('/<project_id>/export/editable-pptx', methods=['POST'])
 def export_editable_pptx(project_id):
     """
-    GET /api/projects/{project_id}/export/editable-pptx?filename=... - Export Editable PPTX
+    POST /api/projects/{project_id}/export/editable-pptx - Export Editable PPTX (Async)
     
-    This endpoint:
-    1. Collects all page images
-    2. Converts them to PDF
+    This endpoint creates an async task that:
+    1. Generates clean background images (removes text, icons) in parallel
+    2. Converts images to PDF
     3. Sends PDF to MinerU for parsing
-    4. Creates editable PPTX from MinerU results
+    4. Creates editable PPTX from MinerU results + clean backgrounds
+    
+    Request body (JSON):
+        {
+            "filename": "optional_custom_name.pptx"
+        }
     
     Returns:
-        JSON with download URL, e.g.
+        JSON with task_id, e.g.
         {
             "success": true,
             "data": {
-                "download_url": "/files/{project_id}/exports/xxx.pptx",
-                "download_url_absolute": "http://host:port/files/{project_id}/exports/xxx.pptx"
-            }
+                "task_id": "uuid-here"
+            },
+            "message": "Export task created"
         }
+    
+    Poll /api/projects/{project_id}/tasks/{task_id} for progress and download URL
     """
     try:
-        from services.file_parser_service import FileParserService
-        from config import Config
-        import tempfile
         import uuid
         import logging
         
@@ -192,189 +196,68 @@ def export_editable_pptx(project_id):
         if not pages:
             return bad_request("No pages found for project")
         
-        # Get image paths
-        file_service = FileService(current_app.config['UPLOAD_FOLDER'])
-        
-        image_paths = []
-        for page in pages:
-            if page.generated_image_path:
-                abs_path = file_service.get_absolute_path(page.generated_image_path)
-                image_paths.append(abs_path)
-        
-        if not image_paths:
+        # Check if pages have generated images
+        has_images = any(page.generated_image_path for page in pages)
+        if not has_images:
             return bad_request("No generated images found for project")
         
-        # Initialize for cleanup in finally block
-        clean_background_paths = []
-        tmp_pdf_path = None
+        # Get filename from request body
+        data = request.get_json() or {}
+        filename = data.get('filename', f'presentation_editable_{project_id}.pptx')
+        if not filename.endswith('.pptx'):
+            filename += '.pptx'
         
-        # Step 1: Generate clean background images (remove text, icons, illustrations)
-        # Use parallel processing for better performance
-        logger.info(f"Generating clean backgrounds for {len(image_paths)} images in parallel...")
+        # Create task record
+        task = Task(
+            project_id=project_id,
+            task_type='EXPORT_EDITABLE_PPTX',
+            status='PENDING'
+        )
+        db.session.add(task)
+        db.session.commit()
         
+        logger.info(f"Created export task {task.id} for project {project_id}")
+        
+        # Get services
         from services.ai_service import AIService
-        from concurrent.futures import ThreadPoolExecutor, as_completed  # For parallel processing
+        from services.file_service import FileService
+        from services.task_manager import task_manager, export_editable_pptx_task
         
-        # Get config values and app instance in main thread (before entering thread pool)
+        ai_service = AIService()
+        file_service = FileService(current_app.config['UPLOAD_FOLDER'])
+        
+        # Get configuration
         aspect_ratio = current_app.config.get('DEFAULT_ASPECT_RATIO', '16:9')
         resolution = current_app.config.get('DEFAULT_RESOLUTION', '2K')
-        app = current_app._get_current_object()  # Get actual app object for thread context
+        max_workers = current_app.config.get('MAX_IMAGE_WORKERS', 8)
         
-        def generate_single_background(index, original_image_path, aspect_ratio, resolution, app):
-            """Generate clean background for a single image (runs in thread pool)"""
-            # Use Flask app context in thread
-            with app.app_context():
-                logger.info(f"Processing background {index+1}/{len(image_paths)}...")
-                ai_service = AIService()  # Create instance per thread
-                
-                clean_bg_path = ExportService.generate_clean_background(
-                    original_image_path=original_image_path,
-                    ai_service=ai_service,
-                    aspect_ratio=aspect_ratio,
-                    resolution=resolution
-                )
-                
-                if clean_bg_path:
-                    logger.info(f"Clean background {index+1} generated successfully")
-                    return (index, clean_bg_path)
-                else:
-                    # Fallback to original image if generation fails
-                    logger.warning(f"Failed to generate clean background {index+1}, using original image")
-                    return (index, original_image_path)
+        # Get Flask app instance for background task
+        app = current_app._get_current_object()
         
-        # Process backgrounds in parallel
-        max_workers = min(len(image_paths), current_app.config.get('MAX_IMAGE_WORKERS', 8))
-        results = {}
+        # Submit background task
+        task_manager.submit_task(
+            task.id,
+            export_editable_pptx_task,
+            project_id=project_id,
+            filename=filename,
+            ai_service=ai_service,
+            file_service=file_service,
+            aspect_ratio=aspect_ratio,
+            resolution=resolution,
+            max_workers=max_workers,
+            app=app
+        )
         
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(generate_single_background, i, path, aspect_ratio, resolution, app): i 
-                for i, path in enumerate(image_paths)
-            }
-            
-            for future in as_completed(futures):
-                try:
-                    index, clean_bg_path = future.result()
-                    results[index] = clean_bg_path
-                except Exception as e:
-                    index = futures[future]
-                    logger.error(f"Error generating background {index+1}: {str(e)}")
-                    results[index] = image_paths[index]  # Fallback to original
+        logger.info(f"Submitted export task {task.id} to task manager")
         
-        # Sort results by index to maintain page order
-        clean_background_paths = [results[i] for i in range(len(image_paths))]
-        logger.info(f"Generated {len(clean_background_paths)} clean backgrounds (parallel processing completed)")
-        
-        try:
-            # Step 2: Create temporary PDF from images
-            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_pdf:
-                tmp_pdf_path = tmp_pdf.name
-            logger.info(f"Creating PDF from {len(image_paths)} images...")
-            ExportService.create_pdf_from_images(image_paths, output_file=tmp_pdf_path)
-            logger.info(f"PDF created: {tmp_pdf_path}")
-            
-            # Step 2: Parse PDF with MinerU
-            logger.info("Parsing PDF with MinerU...")
-            
-            # Get MinerU configuration
-            mineru_token = current_app.config.get('MINERU_TOKEN')
-            mineru_api_base = current_app.config.get('MINERU_API_BASE', 'https://mineru.net')
-            
-            if not mineru_token:
-                return error_response('CONFIG_ERROR', 'MinerU token not configured', 500)
-            
-            # Initialize FileParserService
-            parser_service = FileParserService(
-                mineru_token=mineru_token,
-                mineru_api_base=mineru_api_base
-            )
-            
-            # Parse the PDF
-            batch_id, markdown_content, extract_id, error_message, failed_image_count = parser_service.parse_file(
-                file_path=tmp_pdf_path,
-                filename=f'presentation_{project_id}.pdf'
-            )
-            
-            if error_message or not extract_id:
-                error_msg = error_message or 'Failed to parse PDF with MinerU - no extract_id returned'
-                return error_response('MINERU_ERROR', error_msg, 500)
-            
-            logger.info(f"MinerU parsing completed, extract_id: {extract_id}")
-            
-            # Step 3: Create editable PPTX from MinerU results
-            mineru_result_dir = os.path.join(
-                current_app.config['UPLOAD_FOLDER'],
-                'mineru_files',
-                extract_id
-            )
-            
-            if not os.path.exists(mineru_result_dir):
-                return error_response('MINERU_ERROR', f'MinerU result directory not found: {mineru_result_dir}', 500)
-            
-            logger.info(f"Creating editable PPTX from MinerU results: {mineru_result_dir}")
-            
-            # Determine export directory and filename
-            exports_dir = file_service._get_exports_dir(project_id)
-            
-            # Get filename from query params or use default
-            filename = request.args.get('filename', f'presentation_editable_{project_id}.pptx')
-            if not filename.endswith('.pptx'):
-                filename += '.pptx'
-            
-            output_path = os.path.join(exports_dir, filename)
-            
-            # Get slide dimensions from first image
-            from PIL import Image
-            first_img = Image.open(image_paths[0])
-            slide_width, slide_height = first_img.size
-            first_img.close()
-            
-            # Generate editable PPTX file with clean background images
-            logger.info(f"Creating editable PPTX with {len(clean_background_paths)} clean background images")
-            ExportService.create_editable_pptx_from_mineru(
-                mineru_result_dir=mineru_result_dir,
-                output_file=output_path,
-                slide_width_pixels=slide_width,
-                slide_height_pixels=slide_height,
-                background_images=clean_background_paths  # Use clean backgrounds without text/icons
-            )
-            
-            logger.info(f"Editable PPTX created: {output_path}")
-            
-            # Build download URLs
-            download_path = f"/files/{project_id}/exports/{filename}"
-            base_url = request.url_root.rstrip("/")
-            download_url_absolute = f"{base_url}{download_path}"
-            
-            return success_response(
-                data={
-                    "download_url": download_path,
-                    "download_url_absolute": download_url_absolute,
-                },
-                message="Editable PPTX export completed"
-            )
-        
-        finally:
-            # Clean up temporary PDF
-            if tmp_pdf_path and os.path.exists(tmp_pdf_path):
-                try:
-                    os.unlink(tmp_pdf_path)
-                    logger.info(f"Cleaned up temporary PDF: {tmp_pdf_path}")
-                except Exception as e:
-                    logger.warning(f"Failed to clean up temporary PDF: {str(e)}")
-            
-            # Clean up temporary clean background images
-            if clean_background_paths:
-                for bg_path in clean_background_paths:
-                    # Only delete if it's a temporary file (not the original)
-                    if bg_path not in image_paths and os.path.exists(bg_path):
-                        try:
-                            os.unlink(bg_path)
-                            logger.debug(f"Cleaned up temporary background: {bg_path}")
-                        except Exception as e:
-                            logger.warning(f"Failed to clean up temporary background: {str(e)}")
+        return success_response(
+            data={
+                "task_id": task.id
+            },
+            message="Export task created"
+        )
     
     except Exception as e:
-        logger.exception("Error exporting editable PPTX")
+        logger.exception("Error creating export task")
         return error_response('SERVER_ERROR', str(e), 500)
 
