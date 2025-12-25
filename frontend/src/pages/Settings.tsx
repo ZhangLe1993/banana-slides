@@ -486,7 +486,7 @@ export const Settings: React.FC = () => {
                             >
                               AIHubmix
                             </a>
-                            , 减小迁移成本
+                            , 减小迁移成本(为了安全，强烈建议您限制密匙额度)
                           </p>
                         </div>
                         <div className="mt-3">
