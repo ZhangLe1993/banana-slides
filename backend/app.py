@@ -119,7 +119,6 @@ def create_app():
     def health_check():
         return {'status': 'ok', 'message': 'Banana Slides API is running'}
     
-<<<<<<< HEAD
     # Site status endpoint
     @app.route('/api/site-status')
     def site_status():
@@ -130,7 +129,6 @@ def create_app():
         status = os.getenv('SITE_STATUS', 'sufficient')
         return {'status': status}
     
-=======
     # Output language endpoint
     @app.route('/api/output-language', methods=['GET'])
     def get_output_language():
@@ -146,7 +144,6 @@ def create_app():
             logging.warning(f"Failed to load output language from settings: {db_error}")
             return {'data': {'language': Config.OUTPUT_LANGUAGE}}  # 默认中文
 
->>>>>>> origin/main
     # Root endpoint
     @app.route('/')
     def index():
