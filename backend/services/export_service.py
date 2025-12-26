@@ -1085,8 +1085,33 @@ class ExportService:
                             builder.add_image_placeholder(slide, bbox_list)
             
             elif elem_type in ['image', 'figure', 'chart']:
-                # 如果有递归分析的子元素，使用inpainted背景 + 子元素
+                # 检查是否应该使用递归渲染
+                should_use_recursive_render = False
+                
                 if elem.children and elem.inpainted_background:
+                    # 检查是否有任意子元素占据父元素绝大部分面积
+                    parent_area = (bbox.x1 - bbox.x0) * (bbox.y1 - bbox.y0)
+                    max_child_coverage_ratio = 0.85  # 阈值
+                    has_dominant_child = False
+                    
+                    for child in elem.children:
+                        if hasattr(child, 'bbox_global') and child.bbox_global:
+                            child_bbox = child.bbox_global
+                        else:
+                            child_bbox = child.bbox
+                        
+                        child_area = child_bbox.area
+                        coverage_ratio = child_area / parent_area if parent_area > 0 else 0
+                        
+                        if coverage_ratio > max_child_coverage_ratio:
+                            logger.info(f"{'  ' * depth}    子元素 {child.element_id} 占父元素面积 {coverage_ratio*100:.1f}% (>{max_child_coverage_ratio*100:.0f}%)，跳过递归渲染，直接使用原图")
+                            has_dominant_child = True
+                            break
+                    
+                    should_use_recursive_render = not has_dominant_child
+                
+                # 如果有子元素且应该递归渲染
+                if should_use_recursive_render:
                     logger.debug(f"{'  ' * depth}    元素有 {len(elem.children)} 个子元素，递归添加")
                     
                     # 先添加inpainted背景
@@ -1115,7 +1140,7 @@ class ExportService:
                         depth=depth + 1
                     )
                 else:
-                    # 没有子元素，直接添加图片（参考_add_mineru_image_to_slide）
+                    # 没有子元素或子元素占比过大，直接添加原图（参考_add_mineru_image_to_slide）
                     if elem.image_path and mineru_dir:
                         # 查找图片文件
                         possible_paths = [

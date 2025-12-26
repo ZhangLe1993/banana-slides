@@ -92,6 +92,10 @@ class Config:
     VOLCENGINE_SECRET_KEY = os.getenv('VOLCENGINE_SECRET_KEY', '')
     VOLCENGINE_INPAINTING_TIMEOUT = int(os.getenv('VOLCENGINE_INPAINTING_TIMEOUT', '60'))  # Inpainting 超时时间（秒）
     VOLCENGINE_INPAINTING_MAX_RETRIES = int(os.getenv('VOLCENGINE_INPAINTING_MAX_RETRIES', '3'))  # 最大重试次数
+    
+    # Inpainting Provider 配置
+    # 可选值: 'volcengine' (火山引擎), 'gemini' (Google Gemini 2.5 Flash)
+    INPAINTING_PROVIDER = os.getenv('INPAINTING_PROVIDER', 'gemini')  # 默认使用 Gemini
 
 
 class DevelopmentConfig(Config):

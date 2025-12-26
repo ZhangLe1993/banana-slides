@@ -305,8 +305,9 @@ class ImageEditabilityService:
         self.max_depth = max_depth
         self.min_image_size = min_image_size
         self.min_image_area = min_image_area
+        self.max_child_coverage_ratio = 0.85  # 子图占父图面积比例阈值，超过则不递归
         
-        logger.info(f"ImageEditabilityService initialized with max_depth={max_depth}, min_size={min_image_size}, min_area={min_image_area}")
+        logger.info(f"ImageEditabilityService initialized with max_depth={max_depth}, min_size={min_image_size}, min_area={min_image_area}, max_coverage={self.max_child_coverage_ratio}")
     
     def make_image_editable(
         self,
@@ -441,7 +442,8 @@ class ImageEditabilityService:
                 mineru_result_dir=str(mineru_result_dir),
                 depth=depth,
                 image_id=image_id,
-                root_image_size=root_image_size
+                root_image_size=root_image_size,
+                current_image_size=(width, height)
             )
         else:
             logger.info(f"{'  ' * depth}已达最大递归深度 {self.max_depth}，不再递归")
@@ -890,9 +892,16 @@ class ImageEditabilityService:
     def _should_recurse_into_element(
         self,
         element: EditableElement,
-        mineru_result_dir: str
+        mineru_result_dir: str,
+        parent_image_size: Tuple[int, int]
     ) -> bool:
-        """判断是否应该对元素进行递归分析"""
+        """判断是否应该对元素进行递归分析
+        
+        Args:
+            element: 待判断的元素
+            mineru_result_dir: MinerU结果目录
+            parent_image_size: 父图尺寸 (width, height)
+        """
         # 如果已经有子元素（例如表格单元格），不再递归
         if element.children:
             logger.debug(f"  元素 {element.element_id} 已有 {len(element.children)} 个子元素，不递归")
@@ -910,6 +919,15 @@ class ImageEditabilityService:
         
         if bbox.area < self.min_image_area:
             logger.debug(f"  元素 {element.element_id} 面积过小 ({bbox.area})，不递归")
+            return False
+        
+        # 检查子图是否占据父图绝大部分面积
+        parent_width, parent_height = parent_image_size
+        parent_area = parent_width * parent_height
+        coverage_ratio = bbox.area / parent_area if parent_area > 0 else 0
+        
+        if coverage_ratio > self.max_child_coverage_ratio:
+            logger.info(f"  元素 {element.element_id} 占父图面积 {coverage_ratio*100:.1f}% (>{self.max_child_coverage_ratio*100:.0f}%)，不递归，直接使用原图")
             return False
         
         # 检查是否有对应的图片文件
@@ -939,11 +957,21 @@ class ImageEditabilityService:
         mineru_result_dir: str,
         depth: int,
         image_id: str,
-        root_image_size: Tuple[int, int]
+        root_image_size: Tuple[int, int],
+        current_image_size: Tuple[int, int]
     ):
-        """递归处理子元素"""
+        """递归处理子元素
+        
+        Args:
+            elements: 待处理的元素列表
+            mineru_result_dir: MinerU结果目录
+            depth: 当前递归深度
+            image_id: 当前图片ID
+            root_image_size: 根图片尺寸
+            current_image_size: 当前图片尺寸
+        """
         for element in elements:
-            if not self._should_recurse_into_element(element, mineru_result_dir):
+            if not self._should_recurse_into_element(element, mineru_result_dir, current_image_size):
                 continue
             
             logger.info(f"{'  ' * depth}  → 递归分析子图 {element.element_id} (类型: {element.element_type})")

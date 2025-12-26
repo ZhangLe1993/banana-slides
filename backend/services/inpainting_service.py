@@ -1,12 +1,16 @@
 """
 Inpainting 服务
-提供基于火山引擎的图像区域消除和背景重新生成功能
+提供基于多种 provider 的图像区域消除和背景重新生成功能
+支持的 provider:
+- volcengine: 火山引擎 Inpainting
+- gemini: Google Gemini 2.5 Flash Image Preview
 """
 import logging
 from typing import List, Tuple, Union, Optional
 from PIL import Image
 
 from services.ai_providers.image.volcengine_inpainting_provider import VolcengineInpaintingProvider
+from services.ai_providers.image.gemini_inpainting_provider import GeminiInpaintingProvider
 from utils.mask_utils import (
     create_mask_from_bboxes,
     create_inverse_mask_from_bboxes,
@@ -25,33 +29,58 @@ class InpaintingService:
     
     主要功能：
     1. 从 bbox 生成掩码图像
-    2. 调用火山引擎 inpainting 服务消除指定区域
+    2. 调用 inpainting provider 消除指定区域
     3. 提供便捷的背景重生成接口
+    
+    支持的 provider:
+    - volcengine: 火山引擎 Inpainting
+    - gemini: Google Gemini 2.5 Flash Image Preview
     """
     
-    def __init__(self, volcengine_provider: Optional[VolcengineInpaintingProvider] = None):
+    def __init__(self, provider=None, provider_type: str = "volcengine"):
         """
         初始化 Inpainting 服务
         
         Args:
-            volcengine_provider: 火山引擎 inpainting 提供者，如果为 None 则从配置创建
+            provider: Inpainting 提供者实例，如果为 None 则从配置创建
+            provider_type: Provider 类型 ('volcengine' 或 'gemini')
         """
-        if volcengine_provider is None:
+        if provider is None:
             config = get_config()
-            access_key = config.VOLCENGINE_ACCESS_KEY
-            secret_key = config.VOLCENGINE_SECRET_KEY
-            timeout = config.VOLCENGINE_INPAINTING_TIMEOUT
             
-            if not access_key or not secret_key:
-                raise ValueError("火山引擎 Access Key 和 Secret Key 未配置")
-            
-            self.provider = VolcengineInpaintingProvider(
-                access_key=access_key,
-                secret_key=secret_key,
-                timeout=timeout
-            )
+            if provider_type == "gemini":
+                # 使用 Gemini Inpainting Provider
+                api_key = config.GOOGLE_API_KEY
+                api_base = config.GOOGLE_API_BASE
+                timeout = config.GENAI_TIMEOUT
+                
+                if not api_key:
+                    raise ValueError("Google API Key 未配置")
+                
+                self.provider = GeminiInpaintingProvider(
+                    api_key=api_key,
+                    api_base=api_base,
+                    timeout=timeout
+                )
+                self.provider_type = "gemini"
+            else:
+                # 使用火山引擎 Inpainting Provider（默认）
+                access_key = config.VOLCENGINE_ACCESS_KEY
+                secret_key = config.VOLCENGINE_SECRET_KEY
+                timeout = config.VOLCENGINE_INPAINTING_TIMEOUT
+                
+                if not access_key or not secret_key:
+                    raise ValueError("火山引擎 Access Key 和 Secret Key 未配置")
+                
+                self.provider = VolcengineInpaintingProvider(
+                    access_key=access_key,
+                    secret_key=secret_key,
+                    timeout=timeout
+                )
+                self.provider_type = "volcengine"
         else:
-            self.provider = volcengine_provider
+            self.provider = provider
+            self.provider_type = provider_type
         
         self.config = get_config()
     
@@ -237,19 +266,34 @@ class InpaintingService:
 
 # 便捷函数
 
-def get_inpainting_service() -> InpaintingService:
+_inpainting_service_instances = {}
+
+
+def get_inpainting_service(provider_type: str = None) -> InpaintingService:
     """
-    获取 InpaintingService 实例（单例模式）
+    获取 InpaintingService 实例（单例模式，每种 provider 一个实例）
+    
+    Args:
+        provider_type: Provider 类型 ('volcengine', 'gemini')，
+                      如果为 None 则从配置读取
     
     Returns:
         InpaintingService 实例
     """
-    global _inpainting_service_instance
+    global _inpainting_service_instances
     
-    if '_inpainting_service_instance' not in globals():
-        _inpainting_service_instance = InpaintingService()
+    # 从配置读取默认 provider
+    if provider_type is None:
+        config = get_config()
+        provider_type = getattr(config, 'INPAINTING_PROVIDER', 'gemini')  # 默认使用 gemini
     
-    return _inpainting_service_instance
+    # 获取或创建对应的实例
+    if provider_type not in _inpainting_service_instances:
+        _inpainting_service_instances[provider_type] = InpaintingService(
+            provider_type=provider_type
+        )
+    
+    return _inpainting_service_instances[provider_type]
 
 
 def remove_regions(
