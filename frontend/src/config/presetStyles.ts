@@ -19,7 +19,7 @@ export interface PresetStyle {
   内容与排版：排版逻辑遵循严格的模块化网格系统。请生成清晰的几何分区，使用细线条或微弱的浅灰色色块（Light Gray, #E5E7EB）来划分内容区域。字体方面，应用粗壮有力的无衬线字体（如Helvetica或Roboto）作为标题，正文保持纤细清晰。图表元素应为扁平化的2D矢量图形，如简洁的柱状图或饼图，配色单一且克制。
   
   渲染要求：矢量插画风格，极高清晰度，无论是文字还是图形边缘都要锐利无锯齿，展现出严谨的商务美学，适合世界500强企业汇报场景。`,
-      previewImage: '/preset-previews/business-simple.png',
+      previewImage: '/preset-previews/business-simple.webp',
     },
     {
       id: 'tech-modern',
@@ -32,7 +32,7 @@ export interface PresetStyle {
   内容与排版：画面中应包含悬浮的3D几何元素（如立方体、四面体或芯片结构），这些元素应带有线框渲染（Wireframe）效果。排版布局倾向于不对称的动态平衡，使用具有科技感的等宽字体或现代无衬线体。背景中可以隐约添加电路板纹理、二进制代码流或点阵地图作为装饰，增加细节密度。
   
   渲染要求：Octane Render渲染风格，强调光线追踪、辉光（Bloom）效果和景深控制，呈现出精细的粒子特效和充满科技张力的视觉冲击力。`,
-      previewImage: '/preset-previews/tech-modern.png',
+      previewImage: '/preset-previews/tech-modern.webp',
     },
     {
       id: 'academic-formal',
@@ -45,7 +45,7 @@ export interface PresetStyle {
   内容与排版：排版必须遵循经典的版式设计原则，拥有宽阔的页边距。请使用带有衬线的字体（类似Times New Roman或Garamond）来体现传统与正式。视觉元素主要由精细的黑色线条框（Black, #000000）、标准的学术表格样式和黑白线稿插图（Black, #000000 / White, #FFFFFF）组成。布局上采用左右分栏或上下结构的严谨对齐方式。
   
   渲染要求：超高分辨率扫描件风格，强调字体的灰度抗锯齿效果和线条的锐度，画面如同精装学术期刊的内页，展现出绝对的专业性与权威性。不应该存在任何形式的页面边框，比如黑色边框或者阴影边线。`,
-      previewImage: '/preset-previews/academic-formal.png',
+      previewImage: '/preset-previews/academic-formal.webp',
     },
     {
       id: 'creative-fun',
@@ -58,7 +58,7 @@ export interface PresetStyle {
   内容与排版：画面内容应包含手绘风格的插图元素，如涂鸦箭头、星星、波浪线和不规则的有机形状色块。排版上允许文字倾斜、重叠或跳跃，打破僵硬的网格。字体选用圆润可爱的圆体或手写体。请在角落放置一些拟人化的可爱物体或夸张的对话气泡。
   
   渲染要求：Dribbble热门插画风格，色彩鲜艳平涂，线条流畅且富有弹性，视觉上给人一种快乐、友好且极具亲和力的感觉。`,
-      previewImage: '/preset-previews/creative-fun.png',
+      previewImage: '/preset-previews/creative-fun.webp',
     },
     {
       id: 'minimalist-clean',
@@ -71,7 +71,7 @@ export interface PresetStyle {
   内容与排版：构图的核心是“留白”（Negative Space），留白面积应占据画面的70%以上。排版极为克制，文字字号较小，行间距宽大，使用纤细优雅的非衬线字体。视觉锚点是简单的几何线条构成的图标，布局上追求绝对的平衡。
   
   渲染要求：极简主义摄影风格，高动态范围（HDR），画面极其干净，没有任何噪点，展现出一种画廊般的艺术陈列感。`,
-      previewImage: '/preset-previews/minimalist-clean.png',
+      previewImage: '/preset-previews/minimalist-clean.webp',
     },
     {
       id: 'luxury-premium',
@@ -84,7 +84,7 @@ export interface PresetStyle {
   内容与排版：排版采用经典的居中对齐或对称布局，强调仪式感。字体必须使用高雅的衬线体（Serif），字间距适当加宽以体现尊贵。画面中可以加入细致的金色边框线条、Art Deco风格的装饰纹样。如果有3D物体，应呈现出珠宝般的抛光质感。
   
   渲染要求：电影级写实渲染，强调材质的物理属性（PBR），特别是金属的高光反射和丝绒的漫反射细节，画面呈现出奢侈品广告大片的高级质感。`,
-      previewImage: '/preset-previews/luxury-premium.png',
+      previewImage: '/preset-previews/luxury-premium.webp',
     },
     {
       id: 'nature-fresh',
@@ -97,7 +97,7 @@ export interface PresetStyle {
   内容与排版：画面中应融合真实的自然元素，主要是伸展的绿植叶片，这些元素可以作为背景装饰或前景框架。排版使用圆润亲和的字体。布局上可以稍微松散，模仿自然生长的形态。阴影处理要柔和自然，避免生硬的黑色投影。
   
   渲染要求：微距摄影风格结合3D渲染，强调植物表面的透光感（Subsurface Scattering）和自然材质的细腻纹理，画面清新淡雅，令人心旷神怡。`,
-      previewImage: '/preset-previews/nature-fresh.png',
+      previewImage: '/preset-previews/nature-fresh.webp',
     },
     {
         id: 'gradient-vibrant',
@@ -110,7 +110,7 @@ export interface PresetStyle {
   内容与排版：画面核心是缓慢流动的有机波浪形状，形态柔和自然。排版上使用醒目的粗体无衬线字（Bold Sans-serif），文字颜色为纯白（#FFFFFF），以确保在多彩背景上的绝对清晰度。界面元素采用“玻璃拟态”（Glassmorphism），即高透明度的白色圆角卡片，带有细腻的白色描边和背景模糊效果。
 
   渲染要求：C4D流体模拟渲染，强调“丝绸”般的顺滑光泽，配合轻微的噪点（Grain）增加质感，色彩饱满但不刺眼，展现出流光溢彩的现代数字美学。`,
-        previewImage: '/preset-previews/gradient-vibrant.png',
+        previewImage: '/preset-previews/gradient-vibrant.webp',
       },
   ];
   
