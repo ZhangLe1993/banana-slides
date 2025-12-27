@@ -147,6 +147,7 @@ You can organize the content in two ways:
 ]
 
 Choose the format that best fits the content. Use parts when the PPT has clear major sections.
+Unless otherwise specified, the first page should be kept simplest, usually containing only the title, subtitle, and presenter information.
 
 The user's request: {idea_prompt}. Now generate the outline, don't include any other text.
 {get_language_instruction(language)}
@@ -262,6 +263,7 @@ def get_page_description_prompt(project_context: 'ProjectContext', outline: list
 3. 避免冗长的句子和复杂的表述
 4. 确保内容可读性强，适合在演示时展示
 5. 不要包含任何额外的说明性文字或注释
+{"**6. 除非特殊要求，第一页的内容需要保持极简，一般只放标题副标题以及演讲人等。**" if page_index == 1 else ""}
 
 输出格式示例：
 页面标题：原始社会：与自然共生
