@@ -13,6 +13,8 @@ from pptx.util import Inches
 from PIL import Image
 import io
 import tempfile
+import img2pdf
+from services.prompts import get_clean_background_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +37,8 @@ class ExportService:
             Path to the generated clean background image, or None if failed
         """
         try:
-            # Create edit instruction to remove foreground elements
-            edit_instruction  = """\
-去除当前ppt页面的所有前景元素，包括标题、正文、注释等文字，以及插画、图标、配图、表格等图像。
-保持原有文本框布局、配色、风格、渐变、背景装饰线条、背景图案等背景元素不变。
-最终输出一张纯背景图像，尺寸与原图一致。
-"""
+            # Get clean background prompt from prompts module
+            edit_instruction = get_clean_background_prompt()
             
             logger.info(f"Generating clean background from: {original_image_path}")
             
@@ -129,36 +127,83 @@ class ExportService:
             return pptx_bytes.getvalue()
     
     @staticmethod
-    def create_pdf_from_images(image_paths: List[str], output_file: str = None) -> bytes:
+    def create_pdf_from_images(image_paths: List[str], output_file: str = None) -> Optional[bytes]:
         """
-        Create PDF file from image paths
-        
+        Create PDF file from image paths using img2pdf (low memory usage)
+
         Args:
             image_paths: List of absolute paths to images
             output_file: Optional output file path (if None, returns bytes)
-        
+
         Returns:
-            PDF file as bytes if output_file is None
+            PDF file as bytes if output_file is None, otherwise None
+        """
+        # Validate images exist and log warnings for missing files
+        valid_paths = []
+        for p in image_paths:
+            if os.path.exists(p):
+                valid_paths.append(p)
+            else:
+                logger.warning(f"Image not found and will be skipped for PDF export: {p}")
+
+        if not valid_paths:
+            raise ValueError("No valid images found for PDF export")
+
+        try:
+            logger.info(f"Using img2pdf for PDF export ({len(valid_paths)} pages, low memory mode)")
+
+            # Set page layout: 16:9 aspect ratio (10 inches × 5.625 inches)
+            layout_fun = img2pdf.get_layout_fun(
+                pagesize=(img2pdf.in_to_pt(10), img2pdf.in_to_pt(5.625))
+            )
+
+            # Convert images to PDF
+            pdf_bytes = img2pdf.convert(valid_paths, layout_fun=layout_fun)
+
+            if output_file:
+                with open(output_file, "wb") as f:
+                    f.write(pdf_bytes)
+                return None
+            else:
+                return pdf_bytes
+        except (img2pdf.ImageOpenError, ValueError, IOError) as e:
+            logger.warning(f"img2pdf conversion failed: {e}. Falling back to Pillow (high memory usage).")
+            return ExportService.create_pdf_from_images_pillow(valid_paths, output_file)
+
+    @staticmethod
+    def create_pdf_from_images_pillow(image_paths: List[str], output_file: str = None) -> Optional[bytes]:
+        """
+        Create PDF file from image paths using Pillow (original method)
+
+        Note: This method loads all images into memory at once.
+        For large projects (50+ pages with 20MB/page), use create_pdf_from_images instead.
+
+        Args:
+            image_paths: List of absolute paths to images
+            output_file: Optional output file path (if None, returns bytes)
+
+        Returns:
+            PDF file as bytes if output_file is None, otherwise None
         """
         images = []
-        
+
         # Load all images
         for image_path in image_paths:
             if not os.path.exists(image_path):
                 logger.warning(f"Image not found: {image_path}")
                 continue
-            
+
             img = Image.open(image_path)
-            
+
             # Convert to RGB if necessary (PDF requires RGB)
             if img.mode != 'RGB':
                 img = img.convert('RGB')
-            
+
             images.append(img)
-        
+
         if not images:
             raise ValueError("No valid images found for PDF export")
-        
+
         # Save as PDF
         if output_file:
             images[0].save(

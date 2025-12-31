@@ -21,6 +21,7 @@ export const createProject = async (data: CreateProjectRequest): Promise<ApiResp
     idea_prompt: data.idea_prompt,
     outline_text: data.outline_text,
     description_text: data.description_text,
+    template_style: data.template_style,
   });
   return response.data;
 };
@@ -430,14 +431,18 @@ export const exportPDF = async (
 };
 
 /**
- * 导出为可编辑PPTX
+ * 导出为可编辑PPTX（异步）
+ * 返回任务ID，需要通过getTaskStatus轮询获取进度和下载链接
  */
 export const exportEditablePPTX = async (
-  projectId: string
-): Promise<ApiResponse<{ download_url: string; download_url_absolute?: string }>> => {
-  const response = await apiClient.get<
-    ApiResponse<{ download_url: string; download_url_absolute?: string }>
-  >(`/api/projects/${projectId}/export/editable-pptx`);
+  projectId: string,
+  filename?: string
+): Promise<ApiResponse<{ task_id: string }>> => {
+  const response = await apiClient.post<
+    ApiResponse<{ task_id: string }>
+  >(`/api/projects/${projectId}/export/editable-pptx`, {
+    filename
+  });
   return response.data;
 };
 

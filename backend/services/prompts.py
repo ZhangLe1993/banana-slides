@@ -147,6 +147,7 @@ You can organize the content in two ways:
 ]
 
 Choose the format that best fits the content. Use parts when the PPT has clear major sections.
+Unless otherwise specified, the first page should be kept simplest, containing only the title, subtitle, and presenter information.
 
 The user's request: {idea_prompt}. Now generate the outline, don't include any other text.
 {get_language_instruction(language)}
@@ -255,6 +256,7 @@ def get_page_description_prompt(project_context: 'ProjectContext', outline: list
 我们已经有了完整的大纲：\n{outline}\n{part_info}
 现在请为第 {page_index} 页生成描述：
 {page_outline}
+{"**除非特殊要求，第一页的内容需要保持极简，只放标题副标题以及演讲人等（输出到标题后）, 不添加任何素材。**" if page_index == 1 else ""}
 
 【重要提示】生成的"页面文字"部分会直接渲染到PPT页面上，因此请务必注意：
 1. 文字内容要简洁精炼，每条要点控制在15-25字以内
@@ -265,6 +267,7 @@ def get_page_description_prompt(project_context: 'ProjectContext', outline: list
 
 输出格式示例：
 页面标题：原始社会：与自然共生
+{"副标题：人类祖先和自然的相处之道" if page_index == 1 else ""}
 
 页面文字：
 - 狩猎采集文明：人类活动规模小，对环境影响有限
@@ -272,7 +275,7 @@ def get_page_description_prompt(project_context: 'ProjectContext', outline: list
 - 适应而非改造：通过观察学习自然，发展生存技能
 - 影响特点：局部、短期、低强度，生态可自我恢复
 
-其他页面素材（如果有请积极添加，包括markdown图片链接、公式、表格等）
+其他页面素材（如果文件中存在请积极添加，包括markdown图片链接、公式、表格等）
 
 【关于图片】如果参考文件中包含以 /files/ 开头的本地文件URL图片（例如 /files/mineru/xxx/image.png），请将这些图片以markdown格式输出，例如：![图片描述](/files/mineru/xxx/image.png)。这些图片会被包含在PPT页面中。
 
@@ -288,7 +291,9 @@ def get_image_generation_prompt(page_desc: str, outline_text: str,
                                 current_section: str,
                                 has_material_images: bool = False,
                                 extra_requirements: str = None,
-                                language: str = None) -> str:
+                                language: str = None,
+                                has_template: bool = True,
+                                page_index: int = 1) -> str:
     """
     生成图片生成 prompt
     
@@ -297,7 +302,9 @@ def get_image_generation_prompt(page_desc: str, outline_text: str,
         outline_text: 大纲文本
         current_section: 当前章节
         has_material_images: 是否有素材图片
-        extra_requirements: 额外的要求
+        extra_requirements: 额外的要求（可能包含风格描述）
+        language: 输出语言
+        has_template: 是否有模板图片（False表示无模板模式）
         
     Returns:
         格式化后的 prompt 字符串
@@ -306,7 +313,7 @@ def get_image_generation_prompt(page_desc: str, outline_text: str,
     material_images_note = ""
     if has_material_images:
         material_images_note = (
-            "\n\n提示：除了模板参考图片（用于风格参考）外，还提供了额外的素材图片。"
+            "\n\n提示：" + ("除了模板参考图片（用于风格参考）外，还提供了额外的素材图片。" if has_template else "用户提供了额外的素材图片。") +
             "这些素材图片是可供挑选和使用的元素，你可以从这些素材图片中选择合适的图片、图标、图表或其他视觉元素"
             "直接整合到生成的PPT页面中。请根据页面内容的需要，智能地选择和组合这些素材图片中的元素。"
         )
@@ -316,7 +323,11 @@ def get_image_generation_prompt(page_desc: str, outline_text: str,
     if extra_requirements and extra_requirements.strip():
         extra_req_text = f"\n\n额外要求（请务必遵循）：\n{extra_requirements}\n"
 
-# 该处参考了@歸藏的A工具箱
+    # 根据是否有模板生成不同的设计指南内容（保持原prompt要点顺序）
+    template_style_guideline = "- 配色和设计语言和模板图片严格相似。" if has_template else "- 严格按照风格描述进行设计。"
+    forbidden_template_text_guidline = "- 只参考风格设计，禁止出现模板中的文字。\n" if has_template else ""
+
+    # 该处参考了@歸藏的A工具箱
     prompt = (f"""\
 你是一位专家级UI UX演示设计师，专注于生成设计良好的PPT页面。
 当前PPT页面的页面描述如下:
@@ -334,14 +345,15 @@ def get_image_generation_prompt(page_desc: str, outline_text: str,
 
 <design_guidelines>
 - 要求文字清晰锐利, 画面为4K分辨率，16:9比例。
-- 配色和设计语言和模板图片严格相似。
+{template_style_guideline}
 - 根据内容自动设计最完美的构图，不重不漏地渲染"页面描述"中的文本。
 - 如非必要，禁止出现 markdown 格式符号（如 # 和 * 等）。
-- 只参考风格设计，禁止出现模板中的文字。
-- 使用大小恰当的装饰性图形或插画对空缺位置进行填补。
+{forbidden_template_text_guidline}- 使用大小恰当的装饰性图形或插画对空缺位置进行填补。
 </design_guidelines>
 {get_ppt_language_instruction(language)}
 {material_images_note}{extra_req_text}
+
+{"**注意：当前页面为ppt的封面页，请你采用专业的封面设计美学技巧，务必凸显出页面标题，分清主次，确保一下就能抓住观众的注意力。**" if page_index == 1 else ""}
 """)
     
     logger.debug(f"[get_image_generation_prompt] Final prompt:\n{prompt}")
@@ -704,3 +716,24 @@ You are a helpful assistant that modifies PPT page descriptions based on user re
     final_prompt = files_xml + prompt
     logger.debug(f"[get_descriptions_refinement_prompt] Final prompt:\n{final_prompt}")
     return final_prompt
+
+
+def get_clean_background_prompt() -> str:
+    """
+    生成纯背景图的 prompt（去除文字和插画）
+    用于从完整的PPT页面中提取纯背景
+    """
+    prompt = """\
+你是一位专业的图片前景擦除专家。你的任务是从原始图片中移除文字和配图，输出一张无任何文字内容、干净纯净的背景模板图。
+<requirements>
+- 彻底移除页面中的所有文字、插画、图表。必须确保所有文字都被完全去除。
+- 保持原背景设计的完整性（包括渐变、纹理、图案、线条、色块等）。保留原图的文本框色块。
+- 对于被前景元素遮挡的背景区域，要智能填补，使背景保持无缝和完整。
+- 输出图片的尺寸、风格、配色必须和原图完全一致。
+- 请勿新增任何元素。
+</requirements>
+
+注意，**所有**文字和图表都应该被彻底移除，**不能遗留任何一个。**
+"""
+    logger.debug(f"[get_clean_background_prompt] Final prompt:\n{prompt}")
+    return prompt

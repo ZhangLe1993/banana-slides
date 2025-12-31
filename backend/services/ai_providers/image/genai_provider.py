@@ -1,34 +1,74 @@
 """
 Google GenAI SDK implementation for image generation
+
+Supports two modes:
+- Google AI Studio: Uses API key authentication
+- Vertex AI: Uses GCP service account authentication
 """
 import logging
 from typing import Optional, List
 from google import genai
 from google.genai import types
 from PIL import Image
+from tenacity import retry, stop_after_attempt, wait_exponential
 from .base import ImageProvider
+from config import get_config
 
 logger = logging.getLogger(__name__)
 
 
 class GenAIImageProvider(ImageProvider):
-    """Image generation using Google GenAI SDK"""
-    
-    def __init__(self, api_key: str, api_base: str = None, model: str = "gemini-3-pro-image-preview"):
+    """Image generation using Google GenAI SDK (supports both AI Studio and Vertex AI)"""
+
+    def __init__(
+        self,
+        api_key: str = None,
+        api_base: str = None,
+        model: str = "gemini-3-pro-image-preview",
+        vertexai: bool = False,
+        project_id: str = None,
+        location: str = None
+    ):
         """
         Initialize GenAI image provider
-        
+
         Args:
-            api_key: Google API key
-            api_base: API base URL (for proxies like aihubmix)
+            api_key: Google API key (for AI Studio mode)
+            api_base: API base URL (for proxies like aihubmix, AI Studio mode only)
             model: Model name to use
+            vertexai: If True, use Vertex AI instead of AI Studio
+            project_id: GCP project ID (required for Vertex AI mode)
+            location: GCP region (for Vertex AI mode, default: us-central1)
         """
-        self.client = genai.Client(
-            http_options=types.HttpOptions(base_url=api_base) if api_base else None,
-            api_key=api_key
-        )
+        timeout_ms = int(get_config().GENAI_TIMEOUT * 1000)
+
+        if vertexai:
+            # Vertex AI mode - uses service account credentials from GOOGLE_APPLICATION_CREDENTIALS
+            logger.info(f"Initializing GenAI image provider in Vertex AI mode, project: {project_id}, location: {location}")
+            self.client = genai.Client(
+                vertexai=True,
+                project=project_id,
+                location=location or 'us-central1',
+                http_options=types.HttpOptions(timeout=timeout_ms)
+            )
+        else:
+            # AI Studio mode - uses API key
+            http_options = types.HttpOptions(
+                base_url=api_base,
+                timeout=timeout_ms
+            ) if api_base else types.HttpOptions(timeout=timeout_ms)
+
+            self.client = genai.Client(
+                http_options=http_options,
+                api_key=api_key
+            )
+
         self.model = model
     
+    @retry(
+        stop=stop_after_attempt(get_config().GENAI_MAX_RETRIES + 1),
+        wait=wait_exponential(multiplier=1, min=2, max=10)
+    )
     def generate_image(
         self,
         prompt: str,
