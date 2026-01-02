@@ -415,16 +415,101 @@ class ExportService:
             logger.error(f"Failed to add image element: {str(e)}")
     
     @staticmethod
+    def _collect_text_elements_for_extraction(
+        elements: List,  # List[EditableElement]
+        depth: int = 0
+    ) -> List[tuple]:
+        """
+        递归收集所有需要提取样式的文本元素
+        
+        Args:
+            elements: EditableElement列表
+            depth: 当前递归深度
+        
+        Returns:
+            元组列表，每个元组为 (element_id, image_path, text_content)
+        """
+        text_items = []
+        
+        for elem in elements:
+            elem_type = elem.element_type
+            
+            # 文本类型元素需要提取样式
+            if elem_type in ['text', 'title', 'table_cell']:
+                if elem.content and elem.image_path and os.path.exists(elem.image_path):
+                    text = elem.content.strip()
+                    if text:
+                        text_items.append((elem.element_id, elem.image_path, text))
+            
+            # 递归处理子元素
+            if hasattr(elem, 'children') and elem.children:
+                child_items = ExportService._collect_text_elements_for_extraction(
+                    elements=elem.children,
+                    depth=depth + 1
+                )
+                text_items.extend(child_items)
+        
+        return text_items
+    
+    @staticmethod
+    def _batch_extract_text_styles(
+        text_items: List[tuple],
+        text_attribute_extractor,
+        max_workers: int = 8
+    ) -> Dict[str, Any]:
+        """
+        批量并行提取文本样式
+        
+        Args:
+            text_items: 元组列表，每个元组为 (element_id, image_path, text_content)
+            text_attribute_extractor: 文本属性提取器
+            max_workers: 并发数
+        
+        Returns:
+            字典，key为element_id，value为TextStyleResult
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
+        if not text_items or not text_attribute_extractor:
+            return {}
+        
+        logger.info(f"并行提取 {len(text_items)} 个文本元素的样式（并发数: {max_workers}）...")
+        
+        results = {}
+        
+        def extract_single(item):
+            element_id, image_path, text_content = item
+            try:
+                style = text_attribute_extractor.extract(
+                    image=image_path,
+                    text_content=text_content
+                )
+                return element_id, style
+            except Exception as e:
+                logger.warning(f"提取文字样式失败 [{element_id}]: {e}")
+                return element_id, None
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(extract_single, item): item[0] for item in text_items}
+            
+            for future in as_completed(futures):
+                element_id, style = future.result()
+                if style is not None:
+                    results[element_id] = style
+        
+        logger.info(f"✓ 文本样式提取完成，成功 {len(results)}/{len(text_items)} 个")
+        return results
+    
+    @staticmethod
     def create_editable_pptx_with_recursive_analysis(
         image_paths: List[str] = None,
         output_file: str = None,
         slide_width_pixels: int = 1920,
         slide_height_pixels: int = 1080,
-        mineru_token: str = None,
-        mineru_api_base: str = None,
         max_depth: int = 2,
         max_workers: int = 4,
-        editable_images: List = None  # 可选：直接传入已分析的EditableImage列表
+        editable_images: List = None,  # 可选：直接传入已分析的EditableImage列表
+        text_attribute_extractor = None  # 可选：文字属性提取器，用于提取颜色、粗体、斜体等样式
     ) -> bytes:
         """
         使用递归图片可编辑化服务创建可编辑PPTX
@@ -435,16 +520,18 @@ class ExportService:
         1. 传入 image_paths：自动分析图片并生成PPTX
         2. 传入 editable_images：直接使用已分析的结果（避免重复分析）
         
+        配置（如 MinerU token）自动从 Flask app.config 获取。
+        
         Args:
             image_paths: 图片路径列表（可选，与editable_images二选一）
             output_file: 输出文件路径（可选）
             slide_width_pixels: 目标幻灯片宽度
             slide_height_pixels: 目标幻灯片高度
-            mineru_token: MinerU token
-            mineru_api_base: MinerU API base
             max_depth: 最大递归深度
             max_workers: 并发处理数
             editable_images: 已分析的EditableImage列表（可选，与image_paths二选一）
+            text_attribute_extractor: 文字属性提取器（可选），用于提取文字颜色、粗体、斜体等样式
+                可通过 TextAttributeExtractorFactory.create_caption_model_extractor() 创建
         
         Returns:
             PPTX文件字节流（如果output_file为None）
@@ -461,12 +548,8 @@ class ExportService:
             
             logger.info(f"开始使用递归分析方法创建可编辑PPTX，共 {len(image_paths)} 页")
             
-            # 1. 创建ImageEditabilityService
-            config = ServiceConfig.from_defaults(
-                mineru_token=mineru_token,
-                mineru_api_base=mineru_api_base,
-                max_depth=max_depth
-            )
+            # 1. 创建ImageEditabilityService（配置自动从 Flask config 获取）
+            config = ServiceConfig.from_defaults(max_depth=max_depth)
             editability_service = ImageEditabilityService(config)
             
             # 2. 并发处理所有页面，生成EditableImage结构
@@ -491,14 +574,30 @@ class ExportService:
                 
                 editable_images = results
         
-        logger.info(f"Step 2: 创建PPTX...")
+        # 2.5. 并行提取所有文本元素的样式（如果提供了提取器）
+        text_styles_cache = {}
+        if text_attribute_extractor:
+            logger.info(f"Step 2: 批量提取文本样式...")
+            all_text_items = []
+            for editable_img in editable_images:
+                text_items = ExportService._collect_text_elements_for_extraction(editable_img.elements)
+                all_text_items.extend(text_items)
+            
+            if all_text_items:
+                text_styles_cache = ExportService._batch_extract_text_styles(
+                    text_items=all_text_items,
+                    text_attribute_extractor=text_attribute_extractor,
+                    max_workers=max_workers * 2  # 文本属性提取使用更高并发
+                )
         
-        # 3. 创建PPTX构建器
+        logger.info(f"Step 4: 创建PPTX...")
+        
+        # 4. 创建PPTX构建器
         builder = PPTXBuilder()
         builder.create_presentation()
         builder.setup_presentation_size(slide_width_pixels, slide_height_pixels)
         
-        # 4. 为每个页面构建幻灯片
+        # 5. 为每个页面构建幻灯片
         for page_idx, editable_img in enumerate(editable_images):
             logger.info(f"  构建第 {page_idx + 1}/{len(editable_images)} 页...")
             
@@ -542,7 +641,8 @@ class ExportService:
                 elements=editable_img.elements,
                 scale_x=1.0,
                 scale_y=1.0,
-                depth=0
+                depth=0,
+                text_styles_cache=text_styles_cache  # 使用预提取的样式缓存
             )
             
             logger.info(f"    ✓ 第 {page_idx + 1} 页完成，添加了 {len(editable_img.elements)} 个元素")
@@ -564,7 +664,8 @@ class ExportService:
         elements: List,  # List[EditableElement]
         scale_x: float = 1.0,
         scale_y: float = 1.0,
-        depth: int = 0
+        depth: int = 0,
+        text_styles_cache: Dict[str, Any] = None  # 预提取的文本样式缓存，key为element_id
     ):
         """
         递归地将EditableElement添加到幻灯片
@@ -576,10 +677,14 @@ class ExportService:
             scale_x: X轴缩放因子
             scale_y: Y轴缩放因子
             depth: 当前递归深度
+            text_styles_cache: 预提取的文本样式缓存（可选），由 _batch_extract_text_styles 生成
         
         Note:
             elem.image_path 现在是绝对路径，无需额外的目录参数
         """
+        if text_styles_cache is None:
+            text_styles_cache = {}
+        
         for elem in elements:
             elem_type = elem.element_type
             
@@ -611,11 +716,17 @@ class ExportService:
                             # 确定文本级别
                             level = 'title' if elem_type == 'title' else 'default'
                             
+                            # 从缓存获取预提取的文字样式
+                            text_style = text_styles_cache.get(elem.element_id)
+                            if text_style:
+                                logger.debug(f"{'  ' * depth}  使用缓存的文字样式: color={text_style.font_color_rgb}, bold={text_style.is_bold}")
+                            
                             builder.add_text_element(
                                 slide=slide,
                                 text=text,
                                 bbox=bbox_list,
-                                text_level=level
+                                text_level=level,
+                                text_style=text_style
                             )
                         except Exception as e:
                             logger.warning(f"添加文本元素失败: {e}")
@@ -626,6 +737,9 @@ class ExportService:
                     text = elem.content.strip()
                     if text:
                         try:
+                            # 从缓存获取预提取的文字样式
+                            text_style = text_styles_cache.get(elem.element_id)
+                            
                             # 表格单元格已经在上面统一处理了bbox_global和缩放
                             # 直接使用bbox_list即可
                             builder.add_text_element(
@@ -633,7 +747,8 @@ class ExportService:
                                 text=text,
                                 bbox=bbox_list,
                                 text_level=None,
-                                align='center'
+                                align='center',
+                                text_style=text_style
                             )
                             
                         except Exception as e:
@@ -662,7 +777,8 @@ class ExportService:
                         elements=elem.children,
                         scale_x=scale_x,
                         scale_y=scale_y,
-                        depth=depth + 1
+                        depth=depth + 1,
+                        text_styles_cache=text_styles_cache
                     )
                 else:
                     # 没有子元素，添加整体表格图片
@@ -724,7 +840,8 @@ class ExportService:
                         elements=elem.children,
                         scale_x=scale_x,
                         scale_y=scale_y,
-                        depth=depth + 1
+                        depth=depth + 1,
+                        text_styles_cache=text_styles_cache
                     )
                 else:
                     # 没有子元素或子元素占比过大，直接添加原图
