@@ -53,8 +53,7 @@ from .extractors import (
 from .inpaint_providers import (
     InpaintProvider,
     DefaultInpaintProvider,
-    GenerativeEditInpaintProvider,
-    AIEditInpaintProvider  # 向后兼容的别名
+    GenerativeEditInpaintProvider
 )
 
 # 工厂和配置
@@ -82,7 +81,6 @@ __all__ = [
     'InpaintProvider',
     'DefaultInpaintProvider',
     'GenerativeEditInpaintProvider',
-    'AIEditInpaintProvider',  # 向后兼容的别名
     # 工厂和配置
     'ExtractorFactory',
     'InpaintProviderFactory',

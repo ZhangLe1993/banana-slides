@@ -201,6 +201,3 @@ class GenerativeEditInpaintProvider(InpaintProvider):
             return None
 
 
-# 向后兼容的别名
-AIEditInpaintProvider = GenerativeEditInpaintProvider
-
