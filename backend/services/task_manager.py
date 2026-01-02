@@ -895,13 +895,6 @@ def export_editable_pptx_with_recursive_analysis_task(
                 output_path = os.path.join(exports_dir, filename)
                 logger.info(f"文件名冲突，使用新文件名: {filename}")
             
-            # 获取MinerU配置
-            mineru_token = app.config.get('MINERU_TOKEN')
-            mineru_api_base = app.config.get('MINERU_API_BASE', 'https://mineru.net')
-            
-            if not mineru_token:
-                raise ValueError('MinerU token not configured')
-            
             # 获取第一张图片的尺寸作为参考
             first_img = Image.open(image_paths[0])
             slide_width, slide_height = first_img.size
@@ -918,17 +911,20 @@ def export_editable_pptx_with_recursive_analysis_task(
             task.set_progress(prog)
             db.session.commit()
             
-            # Step 2: 调用新的导出方法
-            logger.info("Step 2: 创建可编辑PPTX...")
+            # Step 2: 创建文字属性提取器
+            from services.image_editability import TextAttributeExtractorFactory
+            text_attribute_extractor = TextAttributeExtractorFactory.create_caption_model_extractor()
+            
+            # Step 3: 调用导出方法（配置自动从 Flask config 获取）
+            logger.info("Step 3: 创建可编辑PPTX...")
             ExportService.create_editable_pptx_with_recursive_analysis(
                 image_paths=image_paths,
                 output_file=output_path,
                 slide_width_pixels=slide_width,
                 slide_height_pixels=slide_height,
-                mineru_token=mineru_token,
-                mineru_api_base=mineru_api_base,
                 max_depth=max_depth,
-                max_workers=max_workers
+                max_workers=max_workers,
+                text_attribute_extractor=text_attribute_extractor
             )
             
             logger.info(f"✓ 可编辑PPTX已创建: {output_path}")

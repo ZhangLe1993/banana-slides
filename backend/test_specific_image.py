@@ -4,6 +4,7 @@
 import os
 import sys
 import logging
+import time
 from pathlib import Path
 
 # 添加backend目录到路径
@@ -16,9 +17,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
 def main():
     # 测试图片路径（WSL格式）
-    test_image = "/mnt/d/Desktop/banana-slides/test_outputs/b69fee8d-0f97-4ad9-a3a5-1ea5a88085d8_1766468506083.png"
+    test_image = "/mnt/d/Desktop/下载.png"
     
     print("\n" + "="*80)
     print("测试递归图片可编辑化服务 - 单张图片导出PPTX")
@@ -42,67 +44,52 @@ def main():
     mineru_token = os.getenv('MINERU_TOKEN')
     mineru_api_base = os.getenv('MINERU_API_BASE', 'https://mineru.net')
     upload_folder = os.getenv('UPLOAD_FOLDER', '/mnt/d/Desktop/banana-slides/uploads')
-    volcengine_ak = os.getenv('VOLCENGINE_ACCESS_KEY')
-    volcengine_sk = os.getenv('VOLCENGINE_SECRET_KEY')
+    google_api_key = os.getenv('GOOGLE_API_KEY')
+    google_api_base = os.getenv('GOOGLE_API_BASE')
         
     print(f"  MinerU Token: {'✅ 已配置' if mineru_token else '❌ 未配置'}")
     print(f"  MinerU API: {mineru_api_base}")
-    print(f"  Volcengine AK: {'✅ 已配置' if volcengine_ak else '❌ 未配置'}")
-    print(f"  Volcengine SK: {'✅ 已配置' if volcengine_sk else '❌ 未配置'}")
+    print(f"  Google API Key: {'✅ 已配置' if google_api_key else '❌ 未配置'}")
+    if google_api_base:
+        print(f"  Google API Base: {google_api_base}")
     print(f"  Upload Folder: {upload_folder}")
     
     if not mineru_token:
         print("\n❌ 错误：MinerU Token 未配置")
         return 1
     
+    if not google_api_key:
+        print("\n❌ 错误：GOOGLE_API_KEY 未配置")
+        return 1
+    
     # 2. 检查图片尺寸
     print("\n[2/5] 检查图片...")
     from PIL import Image
     img = Image.open(test_image)
-    print(f"  图片尺寸: {img.width}x{img.height}")
+    img_width, img_height = img.width, img.height
+    print(f"  图片尺寸: {img_width}x{img_height}")
     print(f"  图片模式: {img.mode}")
     img.close()
     
     # 3. 初始化服务
     print("\n[3/5] 初始化 ImageEditabilityService...")
     from services.image_editability import ImageEditabilityService, ServiceConfig
-    from services.inpainting_service import InpaintingService
-    
-    # 初始化Gemini Inpainting服务
-    google_api_key = os.getenv('GOOGLE_API_KEY')
-    google_api_base = os.getenv('GOOGLE_API_BASE')
-    
-    if not google_api_key:
-        print("  ❌ 错误：GOOGLE_API_KEY 未配置")
-        return 1
-    
-    print(f"  Google API Key: {'✅ 已配置' if google_api_key else '❌ 未配置'}")
-    if google_api_base:
-        print(f"  Google API Base: {google_api_base}")
     
     try:
-        # 创建Gemini Inpainting服务
-        gemini_inpainting = InpaintingService(provider_type="gemini")
-        print(f"  ✅ Gemini Inpainting服务已创建")
-        
-        service = ImageEditabilityService(
+        # 使用新接口：通过 ServiceConfig.from_defaults 创建配置
+        # max_depth 语义：1=只处理表层不递归，2=递归一层，以此类推
+        config = ServiceConfig.from_defaults(
             mineru_token=mineru_token,
             mineru_api_base=mineru_api_base,
-            inpainting_service=gemini_inpainting,  # 传入Gemini服务
-            max_depth=1,  # 只分析1层，加快测试
+            upload_folder=upload_folder,
+            max_depth=1,  # 只分析表层，不递归（加快测试）
             min_image_size=300,
-            min_image_area=90000,
-            upload_folder=upload_folder
+            min_image_area=90000
         )
-        print("  ✅ 服务初始化成功")
         
-        if service.inpainting_service:
-            provider_type = type(service.inpainting_service.provider).__name__
-            print(f"  ✅ Inpainting服务已启用")
-            print(f"     Provider: {provider_type}")
-            print(f"     Provider类型: {service.inpainting_service.provider_type}")
-        else:
-            print("  ⚠️  Inpainting服务未启用（将跳过背景生成）")
+        service = ImageEditabilityService(config)
+        print("  ✅ 服务初始化成功")
+        print(f"  ✅ 使用 GenerativeEdit（Gemini）进行背景重绘")
             
     except Exception as e:
         print(f"  ❌ 服务初始化失败: {e}")
@@ -116,7 +103,7 @@ def main():
     print("  1) 转换为PDF")
     print("  2) 上传MinerU解析")
     print("  3) 提取元素bbox和内容")
-    print("  4) 使用Gemini Inpainting生成clean background")
+    print("  4) 使用GenerativeEdit生成clean background")
     print("  5) 检查是否有子图需要递归分析")
     print("\n  请等待...")
     
@@ -132,7 +119,6 @@ def main():
         print(f"    Clean background: {'✅ 已生成' if editable_img.clean_background else '⚠️  未生成'}")
         if editable_img.clean_background:
             print(f"      路径: {editable_img.clean_background}")
-        print(f"    深度: {editable_img.depth}")
         
         # 显示元素详情
         if editable_img.elements:
@@ -168,8 +154,17 @@ def main():
     # 5. 导出为PPTX（复用已分析的结果，避免重复调用）
     print("\n[5/5] 导出为PPTX（复用分析结果）...")
     from services.export_service import ExportService
+    from services.image_editability import TextAttributeExtractorFactory
     
-    import time
+    # 创建文字属性提取器（用于提取颜色、粗体、斜体等样式）
+    print("  创建文字属性提取器...")
+    try:
+        text_extractor = TextAttributeExtractorFactory.create_caption_model_extractor()
+        print("  ✅ 文字属性提取器已创建")
+    except Exception as e:
+        print(f"  ⚠️  文字属性提取器创建失败: {e}，将使用默认样式")
+        text_extractor = None
+    
     timestamp = int(time.time())
     output_file = os.path.join(upload_folder, f"test_recursive_export_{timestamp}.pptx")
     
@@ -179,7 +174,8 @@ def main():
             editable_images=[editable_img],  # 复用第4步的分析结果
             output_file=output_file,
             slide_width_pixels=editable_img.width,
-            slide_height_pixels=editable_img.height
+            slide_height_pixels=editable_img.height,
+            text_attribute_extractor=text_extractor  # 传入文字样式提取器
         )
         
         if os.path.exists(output_file):
@@ -204,7 +200,7 @@ def main():
     print(f"\n输出文件: {output_file}")
     print("\n使用的技术:")
     print("  • MinerU: 版面分析和元素提取")
-    print("  • Gemini Inpainting: 生成clean background（纯黑色mask标注）")
+    print("  • GenerativeEdit (Gemini): 生成clean background")
     print("  • 递归分析: 识别图片中的子图和图表")
     print("  • 智能坐标映射: 父子坐标转换")
     print("\n请打开PPTX文件查看可编辑结果！\n")
@@ -214,4 +210,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-
