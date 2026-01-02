@@ -120,7 +120,7 @@ def example_3_recursive_analysis():
         prefix = "  " * indent + "└─"
         print(f"{prefix} {element.element_type} (ID: {element.element_id})")
         
-        if element.inpainted_background:
+        if element.inpainted_background_path:
             print(f"{prefix}   [有inpaint背景]")
         
         if element.children:

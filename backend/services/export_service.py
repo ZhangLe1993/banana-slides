@@ -1023,15 +1023,15 @@ class ExportService:
             
             elif elem_type == 'table':
                 # 如果表格有子元素（单元格），使用inpainted背景 + 单元格
-                if elem.children and elem.inpainted_background:
+                if elem.children and elem.inpainted_background_path:
                     logger.info(f"{'  ' * depth}    表格有 {len(elem.children)} 个单元格，使用可编辑格式")
                     
                     # 先添加inpainted背景（干净的表格框架）
-                    if os.path.exists(elem.inpainted_background):
+                    if os.path.exists(elem.inpainted_background_path):
                         try:
                             builder.add_image_element(
                                 slide=slide,
-                                image_path=elem.inpainted_background,
+                                image_path=elem.inpainted_background_path,
                                 bbox=bbox_list
                             )
                         except Exception as e:
@@ -1088,7 +1088,7 @@ class ExportService:
                 # 检查是否应该使用递归渲染
                 should_use_recursive_render = False
                 
-                if elem.children and elem.inpainted_background:
+                if elem.children and elem.inpainted_background_path:
                     # 检查是否有任意子元素占据父元素绝大部分面积
                     parent_area = (bbox.x1 - bbox.x0) * (bbox.y1 - bbox.y0)
                     max_child_coverage_ratio = 0.85  # 阈值
@@ -1115,9 +1115,9 @@ class ExportService:
                     logger.debug(f"{'  ' * depth}    元素有 {len(elem.children)} 个子元素，递归添加")
                     
                     # 先添加inpainted背景
-                    if os.path.exists(elem.inpainted_background):
+                    if os.path.exists(elem.inpainted_background_path):
                         try:
-                            builder.add_image_element(slide, elem.inpainted_background, bbox_list)
+                            builder.add_image_element(slide, elem.inpainted_background_path, bbox_list)
                         except Exception as e:
                             logger.error(f"Failed to add inpainted background: {e}")
                     

@@ -81,8 +81,8 @@ class EditableElement:
     """可编辑元素"""
     element_id: str  # 唯一标识
     element_type: str  # text, image, table, figure, equation等
-    bbox: BBox  # 在当前图片坐标系中的位置
-    bbox_global: BBox  # 在根图片坐标系中的位置
+    bbox: BBox  # 在父容器（EditableImage）坐标系中的位置
+    bbox_global: BBox  # 在根图片（最顶层EditableImage）坐标系中的位置（预计算存储，避免前端/后续使用时重新遍历计算）
     content: Optional[str] = None  # 文字内容、HTML表格等
     image_path: Optional[str] = None  # 图片路径（MinerU提取的）
     
@@ -90,7 +90,7 @@ class EditableElement:
     children: List['EditableElement'] = field(default_factory=list)
     
     # 子图的inpaint背景（如果此元素是递归分析的图片/图表）
-    inpainted_background: Optional[str] = None
+    inpainted_background_path: Optional[str] = None
     
     # 元数据
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -104,7 +104,7 @@ class EditableElement:
             'bbox_global': self.bbox_global.to_dict(),
             'content': self.content,
             'image_path': self.image_path,
-            'inpainted_background': self.inpainted_background,
+            'inpainted_background_path': self.inpainted_background_path,
             'metadata': self.metadata,
             'children': [child.to_dict() for child in self.children]
         }
@@ -1158,7 +1158,7 @@ class ImageEditabilityService:
                     root_image_path=root_image_path
                 )
                 element.children = child_editable.elements
-                element.inpainted_background = child_editable.clean_background
+                element.inpainted_background_path = child_editable.clean_background
                 element.metadata['child_mineru_result_dir'] = child_editable.mineru_result_dir
                 logger.info(f"{'  ' * depth}  ✓ 子图分析完成，提取了 {len(child_editable.elements)} 个子元素")
             except Exception as e:
@@ -1202,7 +1202,7 @@ class ImageEditabilityService:
                 
                 if child_editable:
                     element.children = child_editable.elements
-                    element.inpainted_background = child_editable.clean_background
+                    element.inpainted_background_path = child_editable.clean_background
                     element.metadata['child_mineru_result_dir'] = child_editable.mineru_result_dir
                     logger.info(f"{'  ' * depth}  ✓ 子图分析完成，提取了 {len(child_editable.elements)} 个子元素")
     
