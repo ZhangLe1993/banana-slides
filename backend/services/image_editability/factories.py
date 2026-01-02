@@ -6,7 +6,7 @@ from typing import List, Optional, Any
 from pathlib import Path
 
 from .extractors import ElementExtractor, MinerUElementExtractor, BaiduOCRElementExtractor
-from .inpaint_providers import InpaintProvider, DefaultInpaintProvider
+from .inpaint_providers import InpaintProvider, DefaultInpaintProvider, GenerativeEditInpaintProvider
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ class InpaintProviderFactory:
     @staticmethod
     def create_default_provider(inpainting_service: Optional[Any] = None) -> Optional[InpaintProvider]:
         """
-        创建默认的Inpaint提供者
+        创建默认的Inpaint提供者（使用Volcengine Inpainting服务）
         
         Args:
             inpainting_service: InpaintingService实例（可选）
@@ -81,6 +81,40 @@ class InpaintProviderFactory:
             return DefaultInpaintProvider(inpainting_service)
         except Exception as e:
             logger.warning(f"无法初始化Inpainting服务: {e}")
+            return None
+    
+    @staticmethod
+    def create_generative_edit_provider(
+        ai_service: Optional[Any] = None,
+        aspect_ratio: str = "16:9",
+        resolution: str = "2K"
+    ) -> Optional[InpaintProvider]:
+        """
+        创建基于生成式大模型的Inpaint提供者
+        
+        使用生成式大模型（如Gemini图片编辑）通过自然语言指令移除图片中的文字和图标。
+        适用于不需要精确bbox的场景，大模型自动理解并移除相关元素。
+        
+        Args:
+            ai_service: AIService实例（可选，如果不提供则自动获取）
+            aspect_ratio: 目标宽高比
+            resolution: 目标分辨率
+        
+        Returns:
+            GenerativeEditInpaintProvider实例，失败返回None
+        """
+        if ai_service is not None:
+            logger.info("使用提供的AIService创建GenerativeEditInpaintProvider")
+            return GenerativeEditInpaintProvider(ai_service, aspect_ratio, resolution)
+        
+        # 尝试自动获取AI服务
+        try:
+            from services.ai_service_manager import get_ai_service
+            ai_service = get_ai_service()
+            logger.info("自动初始化GenerativeEditInpaintProvider")
+            return GenerativeEditInpaintProvider(ai_service, aspect_ratio, resolution)
+        except Exception as e:
+            logger.warning(f"无法初始化生成式编辑服务: {e}")
             return None
 
 

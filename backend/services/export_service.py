@@ -15,146 +15,16 @@ from PIL import Image
 import io
 import tempfile
 import img2pdf
-from services.prompts import get_clean_background_prompt
-
 logger = logging.getLogger(__name__)
 
 
 class ExportService:
     """Service for exporting presentations"""
     
-    @staticmethod
-    def generate_clean_background(original_image_path: str, ai_service, aspect_ratio: str = "16:9", resolution: str = "2K") -> Optional[str]:
-        """
-        Generate clean background image by removing text, icons, and illustrations
-        
-        Args:
-            original_image_path: Path to the original generated image
-            ai_service: AIService instance for image editing
-            aspect_ratio: Target aspect ratio
-            resolution: Target resolution
-            
-        Returns:
-            Path to the generated clean background image, or None if failed
-        """
-        try:
-            # Get clean background prompt from prompts module
-            edit_instruction = get_clean_background_prompt()
-            
-            logger.info(f"Generating clean background from: {original_image_path}")
-            
-            # Use AI service to edit the image
-            clean_bg_image = ai_service.edit_image(
-                prompt=edit_instruction,
-                current_image_path=original_image_path,
-                aspect_ratio=aspect_ratio,
-                resolution=resolution,
-                original_description=None,
-                additional_ref_images=None
-            )
-            
-            if not clean_bg_image:
-                logger.error("Failed to generate clean background image")
-                return None
-            
-            # Convert Google GenAI Image to PIL Image if needed
-            if not isinstance(clean_bg_image, Image.Image):
-                # Google GenAI returns its own Image type with _pil_image attribute
-                if hasattr(clean_bg_image, '_pil_image'):
-                    clean_bg_image = clean_bg_image._pil_image
-                else:
-                    logger.error(f"Unexpected image type: {type(clean_bg_image)}, no _pil_image attribute")
-                    return None
-            
-            # Save the clean background to a temporary file
-            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
-                clean_bg_path = tmp_file.name
-                clean_bg_image.save(clean_bg_path)
-                logger.info(f"Clean background saved to: {clean_bg_path}")
-                return clean_bg_path
-        
-        except Exception as e:
-            logger.error(f"Error generating clean background: {str(e)}", exc_info=True)
-            return None
-    
-    @staticmethod
-    def generate_clean_background_with_inpainting(
-        original_image_path: str, 
-        element_bboxes: List[Dict[str, Any]],
-        use_inpainting: bool = True
-    ) -> Optional[str]:
-        """
-        使用 inpainting 技术快速生成干净背景（移除文字、图标、图表等元素）
-        
-        Args:
-            original_image_path: 原始图片路径
-            element_bboxes: 元素边界框列表（从 MinerU 获取），格式：[{'bbox': [x0, y0, x1, y1], 'type': 'text/image'}, ...]
-            use_inpainting: 是否使用 inpainting（如果为 False 或失败则回退到原图）
-            
-        Returns:
-            生成的干净背景图片路径，如果失败则返回 None
-        """
-        try:
-            from PIL import Image
-            from config import get_config
-            
-            # 加载原图
-            original_image = Image.open(original_image_path)
-            logger.info(f"Loaded original image: {original_image.size}")
-            
-            # 如果没有元素或不使用 inpainting，返回原图
-            if not element_bboxes or not use_inpainting:
-                logger.info("No elements to remove or inpainting disabled, using original image")
-                return original_image_path
-            
-            # 提取所有需要消除的区域的 bbox
-            bboxes_to_remove = []
-            for element in element_bboxes:
-                bbox = element.get('bbox')
-                if bbox and len(bbox) == 4:
-                    # 转换为 (x1, y1, x2, y2) 格式
-                    bboxes_to_remove.append(tuple(bbox))
-            
-            if not bboxes_to_remove:
-                logger.info("No valid bboxes to remove, using original image")
-                return original_image_path
-            
-            logger.info(f"Found {len(bboxes_to_remove)} elements to remove using inpainting")
-            
-            # 尝试使用 inpainting 服务
-            config = get_config()
-            if not config.VOLCENGINE_ACCESS_KEY or not config.VOLCENGINE_SECRET_KEY:
-                logger.warning("Volcengine credentials not configured, falling back to original image")
-                return original_image_path
-            
-            from services.inpainting_service import InpaintingService
-            
-            service = InpaintingService()
-            clean_image = service.remove_regions_by_bboxes(
-                image=original_image,
-                bboxes=bboxes_to_remove,
-                expand_pixels=5,       # 略微扩大消除区域
-                merge_bboxes=False,    # 不合并bbox，保持原始区域
-                use_retry=True         # 启用重试机制
-            )
-            
-            if clean_image is None:
-                logger.warning("Inpainting failed, falling back to original image")
-                return original_image_path
-            
-            # 保存到临时文件
-            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
-                clean_bg_path = tmp_file.name
-                clean_image.save(clean_bg_path)
-                logger.info(f"Clean background with inpainting saved to: {clean_bg_path}")
-                return clean_bg_path
-                
-        except ImportError as e:
-            logger.warning(f"Inpainting service not available: {e}, using original image")
-            return original_image_path
-        except Exception as e:
-            logger.error(f"Error generating clean background with inpainting: {str(e)}", exc_info=True)
-            return original_image_path
+    # NOTE: clean background生成功能已迁移到解耦的InpaintProvider实现
+    # - DefaultInpaintProvider: 基于mask的精确区域重绘（Volcengine）
+    # - GenerativeEditInpaintProvider: 基于生成式大模型的整图编辑重绘（Gemini等）
+    # 使用方式: from services.image_editability import InpaintProviderFactory
     
     @staticmethod
     def create_pptx_from_images(image_paths: List[str], output_file: str = None) -> bytes:
