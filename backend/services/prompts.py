@@ -755,19 +755,12 @@ def get_text_attribute_extraction_prompt(content_hint: str = "") -> str:
 
 请分析图片中的文字并返回以下属性：
 1. font_color: 字体颜色的十六进制值，格式为 "#RRGGBB"，如 "#FF6B6B"、"#000000"
-2. is_bold: 是否为明显粗体，true或false
-3. is_italic: 是否为明显斜体，true或false
-4. is_underline: 是否有下划线，true或false
-5. text_alignment: 文字对齐方式，可选值为 "left", "center", "right", "justify"。
+
 
 只返回JSON对象，不要包含其他文字：
 ```json
 {{
     "font_color": "#RRGGBB",
-    "is_bold": true/false,
-    "is_italic": true/false,
-    "is_underline": true/false,
-    "text_alignment": "对齐方式"
 }}
 ```
 """.format(content_hint=content_hint)
@@ -888,7 +881,7 @@ def get_quality_enhancement_prompt(inpainted_regions: list = None) -> str:
 你是一位专业的图像修复专家。这张ppt页面图片刚刚经过了文字/对象抹除操作，抹除工具在指定区域留下了一些修复痕迹，包括：
 - 色块不均匀、颜色不连贯
 - 模糊的斑块或涂抹痕迹
-- 与周围背景不协调的区域，有代表性的比如彩虹色块
+- 与周围背景不协调的区域，比如不和谐的渐变色块
 - 可能的纹理断裂或图案不连续
 {regions_info}
 你的任务是修复这些抹除痕迹，让图片看起来像从未有过对象抹除操作一样自然。
@@ -898,8 +891,10 @@ def get_quality_enhancement_prompt(inpainted_regions: list = None) -> str:
 - 保持纹理、颜色、图案的连续性
 - 提升整体画质，消除模糊、噪点、伪影
 - 保持图片的原始构图、布局、色调风格
+- 禁止添加任何文字、图表、插画、图案元素
+- 除了上述区域，其他区域不要做任何修改，保持和原图像素级别地一致。
 - 输出图片的尺寸必须与原图一致
 
-请输出修复后的高清ppt页面底板图片，不要遗漏修复任何一个被涂抹的区域。
+请输出修复后的高清ppt页面背景图片，不要遗漏修复任何一个被涂抹的区域。
 """
     return prompt
