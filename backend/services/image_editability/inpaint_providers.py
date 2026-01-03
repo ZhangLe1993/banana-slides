@@ -340,11 +340,12 @@ class HybridInpaintProvider(InpaintProvider):
             if enhance_quality and self._generative_provider:
                 logger.info("HybridInpaintProvider Step 2: 生成式画质提升...")
                 
-                # 使用专门的画质提升prompt
+                # 使用专门的画质提升prompt，传入被修复的区域信息
                 enhanced_image = self._enhance_image_quality(
                     repaired_image,
-                    kwargs.get('aspect_ratio'),
-                    kwargs.get('resolution')
+                    inpainted_bboxes=bboxes,  # 传入被修复的区域
+                    aspect_ratio=kwargs.get('aspect_ratio'),
+                    resolution=kwargs.get('resolution')
                 )
                 
                 if enhanced_image:
@@ -364,6 +365,7 @@ class HybridInpaintProvider(InpaintProvider):
     def _enhance_image_quality(
         self,
         image: Image.Image,
+        inpainted_bboxes: Optional[List[tuple]] = None,
         aspect_ratio: Optional[str] = None,
         resolution: Optional[str] = None
     ) -> Optional[Image.Image]:
@@ -372,6 +374,7 @@ class HybridInpaintProvider(InpaintProvider):
         
         Args:
             image: 需要提升画质的图像
+            inpainted_bboxes: 被修复区域的bbox列表，格式为 [(x0, y0, x1, y1), ...]
             aspect_ratio: 宽高比（可选）
             resolution: 分辨率（可选）
         
@@ -384,9 +387,27 @@ class HybridInpaintProvider(InpaintProvider):
                 tmp_path = tmp_file.name
                 image.save(tmp_path)
             
-            # 获取画质提升的prompt
+            # 将bboxes转换为百分比形式（相对于图片宽高）
+            regions = None
+            if inpainted_bboxes:
+                img_width, img_height = image.size
+                regions = []
+                for bbox in inpainted_bboxes:
+                    x0, y0, x1, y1 = bbox
+                    # 转换为百分比（0-100）
+                    regions.append({
+                        'left': round(x0 / img_width * 100, 1),
+                        'top': round(y0 / img_height * 100, 1),
+                        'right': round(x1 / img_width * 100, 1),
+                        'bottom': round(y1 / img_height * 100, 1),
+                        'width_percent': round((x1 - x0) / img_width * 100, 1),
+                        'height_percent': round((y1 - y0) / img_height * 100, 1)
+                    })
+                logger.info(f"传递 {len(regions)} 个被修复区域给生成式模型（百分比坐标）")
+            
+            # 获取画质提升的prompt（包含被修复区域信息）
             from services.prompts import get_quality_enhancement_prompt
-            enhance_prompt = get_quality_enhancement_prompt()
+            enhance_prompt = get_quality_enhancement_prompt(inpainted_regions=regions)
             
             # 使用AI服务的aspect_ratio和resolution（如果提供）
             ar = aspect_ratio or self._generative_provider.aspect_ratio

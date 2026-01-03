@@ -850,22 +850,52 @@ def get_batch_text_attribute_extraction_prompt(text_elements_json: str) -> str:
     return prompt
 
 
-def get_quality_enhancement_prompt() -> str:
+def get_quality_enhancement_prompt(inpainted_regions: list = None) -> str:
     """
     生成画质提升的 prompt
     用于在百度图像修复后，使用生成式模型提升整体画质
+    
+    Args:
+        inpainted_regions: 被修复区域列表，每个区域包含百分比坐标：
+            - left, top, right, bottom: 相对于图片宽高的百分比 (0-100)
+            - width_percent, height_percent: 区域宽高占图片的百分比
     """
-    prompt = """\
-你是一位专业的图像修复专家。这张ppt页面图片刚刚经过了文字/对象抹除操作，抹除工具在原本有文字的区域留下了一些修复痕迹，包括：
+    import json
+    
+    # 构建区域信息
+    regions_info = ""
+    if inpainted_regions and len(inpainted_regions) > 0:
+        regions_json = json.dumps(inpainted_regions, ensure_ascii=False, indent=2)
+        regions_info = f"""
+以下是被抹除工具处理过的具体区域（共 {len(inpainted_regions)} 个矩形区域），请重点修复这些位置：
+
+```json
+{regions_json}
+```
+
+坐标说明（所有数值都是相对于图片宽高的百分比，范围0-100%）：
+- left: 区域左边缘距离图片左边缘的百分比
+- top: 区域上边缘距离图片上边缘的百分比  
+- right: 区域右边缘距离图片左边缘的百分比
+- bottom: 区域下边缘距离图片上边缘的百分比
+- width_percent: 区域宽度占图片宽度的百分比
+- height_percent: 区域高度占图片高度的百分比
+
+例如：left=10 表示区域从图片左侧10%的位置开始。
+"""
+    
+    prompt = f"""\
+你是一位专业的图像修复专家。这张ppt页面图片刚刚经过了文字/对象抹除操作，抹除工具在指定区域留下了一些修复痕迹，包括：
 - 色块不均匀、颜色不连贯
 - 模糊的斑块或涂抹痕迹
-- 与周围背景不协调的区域
+- 与周围背景不协调的区域，有代表性的比如彩虹色块
 - 可能的纹理断裂或图案不连续
-
+{regions_info}
 你的任务是修复这些抹除痕迹，让图片看起来像从未有过对象抹除操作一样自然。
 
 要求：
-- 让被修复的区域与周围背景完美融合，保持纹理、颜色、图案的连续性
+- **重点修复上述标注的区域**：这些区域刚刚经过抹除处理，需要让它们与周围背景完美融合
+- 保持纹理、颜色、图案的连续性
 - 提升整体画质，消除模糊、噪点、伪影
 - 保持图片的原始构图、布局、色调风格
 - 输出图片的尺寸必须与原图一致
