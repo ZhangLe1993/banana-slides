@@ -19,8 +19,10 @@ import {
   CheckSquare,
   Square,
   Check,
+  FileText,
+  Loader2,
 } from 'lucide-react';
-import { Button, Loading, Modal, Textarea, useToast, useConfirm, MaterialSelector, Markdown, ProjectSettingsModal } from '@/components/shared';
+import { Button, Loading, Modal, Textarea, useToast, useConfirm, MaterialSelector, Markdown, ProjectSettingsModal, ExportTasksPanel } from '@/components/shared';
 import { MaterialGeneratorModal } from '@/components/shared/MaterialGeneratorModal';
 import { TemplateSelector, getTemplateFile } from '@/components/shared/TemplateSelector';
 import { listUserTemplates, type UserTemplate } from '@/api/endpoints';
@@ -28,8 +30,9 @@ import { materialUrlToFile } from '@/components/shared/MaterialSelector';
 import type { Material } from '@/api/endpoints';
 import { SlideCard } from '@/components/preview/SlideCard';
 import { useProjectStore } from '@/store/useProjectStore';
+import { useExportTasksStore, type ExportTaskType } from '@/store/useExportTasksStore';
 import { getImageUrl } from '@/api/client';
-import { getPageImageVersions, setCurrentImageVersion, updateProject, uploadTemplate } from '@/api/endpoints';
+import { getPageImageVersions, setCurrentImageVersion, updateProject, uploadTemplate, exportPPTX as apiExportPPTX, exportPDF as apiExportPDF, exportEditablePPTX as apiExportEditablePPTX } from '@/api/endpoints';
 import type { ImageVersion, DescriptionContent } from '@/types';
 import { normalizeErrorMessage } from '@/utils';
 
@@ -42,22 +45,21 @@ export const SlidePreview: React.FC = () => {
     currentProject,
     syncProject,
     generateImages,
-    generatePageImage,
     editPageImage,
     deletePageById,
-    exportPPTX,
-    exportPDF,
-    exportEditablePPTX,
     isGlobalLoading,
     taskProgress,
     pageGeneratingTasks,
   } = useProjectStore();
+  
+  const { addTask, pollTask: pollExportTask, tasks: exportTasks } = useExportTasksStore();
 
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [editPrompt, setEditPrompt] = useState('');
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showExportTasksPanel, setShowExportTasksPanel] = useState(false);
   // 多选导出相关状态
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
   const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(new Set());
@@ -234,11 +236,9 @@ export const SlidePreview: React.FC = () => {
       return;
     }
     
-    // 如果已有图片，需要传递 force_regenerate=true
-    const hasImage = !!page.generated_image_path;
-    
     try {
-      await generatePageImage(page.id, hasImage);
+      // 使用统一的 generateImages，传入单个页面 ID
+      await generateImages([page.id]);
       show({ message: '已开始生成图片，请稍候...', type: 'success' });
     } catch (error: any) {
       // 提取后端返回的更具体错误信息
@@ -268,7 +268,7 @@ export const SlidePreview: React.FC = () => {
         type: 'error',
       });
     }
-  }, [currentProject, selectedIndex, pageGeneratingTasks, generatePageImage, show]);
+  }, [currentProject, selectedIndex, pageGeneratingTasks, generateImages, show]);
 
   const handleSwitchVersion = async (versionId: string) => {
     if (!currentProject || !selectedPage?.id || !projectId) return;
@@ -593,13 +593,90 @@ export const SlidePreview: React.FC = () => {
 
   const handleExport = async (type: 'pptx' | 'pdf' | 'editable-pptx') => {
     setShowExportMenu(false);
+    if (!projectId) return;
+    
     const pageIds = getSelectedPageIdsForExport();
-    if (type === 'pptx') {
-      await exportPPTX(pageIds);
-    } else if (type === 'pdf') {
-      await exportPDF(pageIds);
-    } else if (type === 'editable-pptx') {
-      await exportEditablePPTX(undefined, pageIds);
+    const exportTaskId = `export-${Date.now()}`;
+    
+    try {
+      // Add task to export panel immediately
+      addTask({
+        id: exportTaskId,
+        taskId: '', // Will be updated for async tasks
+        projectId,
+        type: type as ExportTaskType,
+        status: 'PROCESSING',
+        pageIds: pageIds, // undefined means all pages
+      });
+      
+      show({ message: '导出任务已开始，可在导出任务面板查看进度', type: 'success' });
+      
+      if (type === 'pptx') {
+        // Synchronous export - direct download
+        const response = await apiExportPPTX(projectId, pageIds);
+        const downloadUrl = response.data?.download_url || response.data?.download_url_absolute;
+        if (downloadUrl) {
+          // Update task with download URL and mark as completed
+          addTask({
+            id: exportTaskId,
+            taskId: '',
+            projectId,
+            type: 'pptx',
+            status: 'COMPLETED',
+            downloadUrl,
+            pageIds: pageIds,
+          });
+          window.open(downloadUrl, '_blank');
+        }
+      } else if (type === 'pdf') {
+        // Synchronous export - direct download
+        const response = await apiExportPDF(projectId, pageIds);
+        const downloadUrl = response.data?.download_url || response.data?.download_url_absolute;
+        if (downloadUrl) {
+          // Update task with download URL and mark as completed
+          addTask({
+            id: exportTaskId,
+            taskId: '',
+            projectId,
+            type: 'pdf',
+            status: 'COMPLETED',
+            downloadUrl,
+            pageIds: pageIds,
+          });
+          window.open(downloadUrl, '_blank');
+        }
+      } else if (type === 'editable-pptx') {
+        // Async export - use export tasks store for background polling
+        const response = await apiExportEditablePPTX(projectId, undefined, pageIds);
+        const taskId = response.data?.task_id;
+        
+        if (taskId) {
+          // Update task with real taskId
+          addTask({
+            id: exportTaskId,
+            taskId,
+            projectId,
+            type: 'editable-pptx',
+            status: 'PROCESSING',
+            pageIds: pageIds,
+          });
+          
+          // Start polling in background (non-blocking)
+          pollExportTask(exportTaskId, projectId, taskId);
+        }
+      }
+    } catch (error: any) {
+      // Update task as failed
+      addTask({
+        id: exportTaskId,
+        taskId: '',
+        projectId,
+        type: type as ExportTaskType,
+        status: 'FAILED',
+        errorMessage: normalizeErrorMessage(error.message || '导出失败'),
+        pageIds: pageIds,
+      });
+      show({ message: normalizeErrorMessage(error.message || '导出失败'), type: 'error' });
     }
   };
 
@@ -836,12 +913,49 @@ export const SlidePreview: React.FC = () => {
           >
             <span className="hidden lg:inline">刷新</span>
           </Button>
+          
+          {/* 导出任务按钮 */}
+          {exportTasks.filter(t => t.projectId === projectId).length > 0 && (
+            <div className="relative">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setShowExportTasksPanel(!showExportTasksPanel);
+                  setShowExportMenu(false);
+                }}
+                className="relative"
+              >
+                {exportTasks.filter(t => t.projectId === projectId && (t.status === 'PROCESSING' || t.status === 'RUNNING' || t.status === 'PENDING')).length > 0 ? (
+                  <Loader2 size={16} className="animate-spin text-banana-500" />
+                ) : (
+                  <FileText size={16} />
+                )}
+                <span className="ml-1 text-xs">
+                  {exportTasks.filter(t => t.projectId === projectId).length}
+                </span>
+              </Button>
+              {showExportTasksPanel && (
+                <div className="absolute right-0 mt-2 z-20">
+                  <ExportTasksPanel 
+                    projectId={projectId} 
+                    pages={currentProject?.pages || []}
+                    className="w-72 max-h-80 shadow-lg" 
+                  />
+                </div>
+              )}
+            </div>
+          )}
+          
           <div className="relative">
             <Button
               variant="primary"
               size="sm"
               icon={<Download size={16} className="md:w-[18px] md:h-[18px]" />}
-              onClick={() => setShowExportMenu(!showExportMenu)}
+              onClick={() => {
+                setShowExportMenu(!showExportMenu);
+                setShowExportTasksPanel(false);
+              }}
               disabled={isMultiSelectMode ? selectedPageIds.size === 0 : !hasAllImages}
               className="text-xs md:text-sm"
             >
@@ -1572,6 +1686,7 @@ export const SlidePreview: React.FC = () => {
           />
         </>
       )}
+      
     </div>
   );
 };
