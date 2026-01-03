@@ -733,7 +733,7 @@ def get_clean_background_prompt() -> str:
 - 请勿新增任何元素。
 </requirements>
 
-注意，**所有**文字和图表都应该被彻底移除，**不能遗留任何一个。**
+注意，**任意位置的所有**文字和图表都应该被彻底移除，**不能遗留任何一个。*
 """
     logger.debug(f"[get_clean_background_prompt] Final prompt:\n{prompt}")
     return prompt
