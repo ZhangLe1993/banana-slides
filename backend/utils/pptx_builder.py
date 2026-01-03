@@ -276,8 +276,8 @@ class PPTXBuilder:
         # Line height ratio: 1.0 for tight bbox (MinerU bbox height = actual text height)
         line_height_ratio = 1.0
         
-        # Try precise measurement first
-        use_precise = self._get_font_path() is not None
+        # Try precise measurement first (check if font file exists)
+        use_precise = os.path.exists(self.FONT_PATH)
         
         # Binary search: find largest font size that fits
         # Use 1pt steps (PowerPoint rounds to integer anyway)
