@@ -5,6 +5,7 @@
 - ElementExtractor: 提取器抽象接口
 - MinerUElementExtractor: MinerU版面分析提取器
 - BaiduOCRElementExtractor: 百度表格OCR提取器
+- BaiduAccurateOCRElementExtractor: 百度高精度OCR提取器（文字识别）
 - ExtractorRegistry: 元素类型到提取器的映射注册表
 """
 import os
@@ -592,6 +593,124 @@ class BaiduOCRElementExtractor(ElementExtractor):
         return [data['current_bbox'] for data in cell_data]
 
 
+class BaiduAccurateOCRElementExtractor(ElementExtractor):
+    """
+    基于百度高精度OCR的元素提取器
+    
+    专门用于文字识别，提取文本行元素
+    支持多语种、高精度识别，返回文字位置信息
+    """
+    
+    def __init__(self, baidu_accurate_ocr_provider):
+        """
+        初始化百度高精度OCR提取器
+        
+        Args:
+            baidu_accurate_ocr_provider: 百度高精度OCR Provider实例
+        """
+        self._ocr_provider = baidu_accurate_ocr_provider
+    
+    def supports_type(self, element_type: Optional[str]) -> bool:
+        """百度高精度OCR主要支持文字类型"""
+        return element_type in ['text', 'title', 'paragraph', None]
+    
+    def extract(
+        self,
+        image_path: str,
+        element_type: Optional[str] = None,
+        **kwargs
+    ) -> ExtractionResult:
+        """
+        从图片中提取文字元素
+        
+        支持的kwargs:
+        - depth: int, 递归深度（用于日志）
+        - language_type: str, 识别语言类型，默认'CHN_ENG'
+        - recognize_granularity: str, 是否定位单字符位置，'big'或'small'
+        - detect_direction: bool, 是否检测图像朝向
+        - paragraph: bool, 是否输出段落信息
+        """
+        depth = kwargs.get('depth', 0)
+        language_type = kwargs.get('language_type', 'CHN_ENG')
+        recognize_granularity = kwargs.get('recognize_granularity', 'big')
+        detect_direction = kwargs.get('detect_direction', False)
+        paragraph = kwargs.get('paragraph', False)
+        
+        elements = []
+        
+        try:
+            # 调用百度高精度OCR识别
+            ocr_result = self._ocr_provider.recognize(
+                image_path,
+                language_type=language_type,
+                recognize_granularity=recognize_granularity,
+                detect_direction=detect_direction,
+                paragraph=paragraph,
+                probability=True,  # 获取置信度
+            )
+            
+            text_lines = ocr_result.get('text_lines', [])
+            image_size = ocr_result.get('image_size', (0, 0))
+            direction = ocr_result.get('direction', None)
+            
+            logger.info(f"{'  ' * depth}百度高精度OCR识别到 {len(text_lines)} 行文字")
+            
+            # 只处理有内容的文字行
+            valid_lines = [line for line in text_lines if line.get('text', '').strip()]
+            
+            if not valid_lines:
+                logger.warning(f"{'  ' * depth}没有识别到有效的文字")
+                return ExtractionResult(elements=elements)
+            
+            # 构建元素列表
+            for idx, line in enumerate(valid_lines):
+                bbox = line.get('bbox', [0, 0, 0, 0])
+                text = line.get('text', '')
+                
+                element = {
+                    'bbox': bbox,
+                    'type': 'text',
+                    'content': text,
+                    'image_path': None,
+                    'metadata': {
+                        'line_idx': idx,
+                        'source': 'baidu_accurate_ocr',
+                    }
+                }
+                
+                # 添加置信度信息
+                if 'probability' in line:
+                    element['metadata']['probability'] = line['probability']
+                
+                # 添加单字符信息
+                if 'chars' in line:
+                    element['metadata']['chars'] = line['chars']
+                
+                # 添加外接多边形顶点
+                if 'vertexes_location' in line:
+                    element['metadata']['vertexes_location'] = line['vertexes_location']
+                
+                elements.append(element)
+            
+            logger.info(f"{'  ' * depth}百度高精度OCR提取了 {len(elements)} 个文字元素")
+            
+            # 添加图片方向信息到上下文
+            context = ExtractionContext(
+                metadata={
+                    'source': 'baidu_accurate_ocr',
+                    'image_size': image_size,
+                    'direction': direction,
+                }
+            )
+            
+            return ExtractionResult(elements=elements, context=context)
+        
+        except Exception as e:
+            logger.error(f"{'  ' * depth}百度高精度OCR识别失败: {e}", exc_info=True)
+        
+        return ExtractionResult(elements=elements)
+
+
 class ExtractorRegistry:
     """
     元素类型到提取器的映射注册表
@@ -701,19 +820,22 @@ class ExtractorRegistry:
     def create_default(
         cls,
         mineru_extractor: ElementExtractor,
-        baidu_ocr_extractor: Optional[ElementExtractor] = None
+        baidu_ocr_extractor: Optional[ElementExtractor] = None,
+        baidu_accurate_ocr_extractor: Optional[ElementExtractor] = None
     ) -> 'ExtractorRegistry':
         """
         创建默认配置的注册表
         
         默认配置：
-        - 表格类型 → 百度OCR（如果可用）
+        - 表格类型 → 百度表格OCR（如果可用）
+        - 文字类型 → 百度高精度OCR（如果可用），否则MinerU
         - 图片类型 → MinerU
         - 其他类型 → MinerU（默认）
         
         Args:
             mineru_extractor: MinerU提取器实例
-            baidu_ocr_extractor: 百度OCR提取器实例（可选）
+            baidu_ocr_extractor: 百度表格OCR提取器实例（可选）
+            baidu_accurate_ocr_extractor: 百度高精度OCR提取器实例（可选）
         
         Returns:
             配置好的注册表实例
@@ -726,12 +848,17 @@ class ExtractorRegistry:
         # 图片类型使用MinerU
         registry.register_types(list(cls.IMAGE_TYPES), mineru_extractor)
         
-        # 表格类型使用百度OCR（如果可用），否则使用MinerU
+        # 表格类型使用百度表格OCR（如果可用），否则使用MinerU
         table_extractor = baidu_ocr_extractor if baidu_ocr_extractor else mineru_extractor
         registry.register_types(list(cls.TABLE_TYPES), table_extractor)
         
+        # 文字类型使用百度高精度OCR（如果可用），否则使用MinerU
+        text_extractor = baidu_accurate_ocr_extractor if baidu_accurate_ocr_extractor else mineru_extractor
+        registry.register_types(list(cls.TEXT_TYPES), text_extractor)
+        
         logger.info(f"创建默认ExtractorRegistry: "
                    f"表格->{table_extractor.__class__.__name__}, "
+                   f"文字->{text_extractor.__class__.__name__}, "
                    f"图片->{mineru_extractor.__class__.__name__}")
         
         return registry

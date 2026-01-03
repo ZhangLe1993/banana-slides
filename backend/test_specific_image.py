@@ -78,13 +78,13 @@ def main():
     try:
         # 使用新接口：通过 ServiceConfig.from_defaults 创建配置
         # max_depth 语义：1=只处理表层不递归，2=递归一层，以此类推
+        # 参数与前端导出保持一致（使用默认值）
         config = ServiceConfig.from_defaults(
             mineru_token=mineru_token,
             mineru_api_base=mineru_api_base,
             upload_folder=upload_folder,
-            max_depth=1,  # 只分析表层，不递归（加快测试）
-            min_image_size=300,
-            min_image_area=90000
+            max_depth=1  # 只分析表层，不递归（加快测试）
+            # min_image_size 和 min_image_area 使用默认值（200, 40000），与前端一致
         )
         
         service = ImageEditabilityService(config)

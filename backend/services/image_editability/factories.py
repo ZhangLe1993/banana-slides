@@ -5,7 +5,8 @@ import logging
 from typing import List, Optional, Any
 from pathlib import Path
 
-from .extractors import ElementExtractor, MinerUElementExtractor, BaiduOCRElementExtractor, ExtractorRegistry
+from .extractors import ElementExtractor, MinerUElementExtractor, BaiduOCRElementExtractor, BaiduAccurateOCRElementExtractor, ExtractorRegistry
+from .hybrid_extractor import HybridElementExtractor, create_hybrid_extractor
 from .inpaint_providers import InpaintProvider, DefaultInpaintProvider, GenerativeEditInpaintProvider, InpaintProviderRegistry
 from .text_attribute_extractors import (
     TextAttributeExtractor,
@@ -104,11 +105,175 @@ class ExtractorFactory:
             baidu_ocr_extractor = BaiduOCRElementExtractor(baidu_table_ocr_provider)
             logger.info("✅ 百度表格OCR提取器已创建")
         
+        # 尝试创建百度高精度OCR提取器
+        baidu_accurate_ocr_extractor = None
+        try:
+            from services.ai_providers.ocr import create_baidu_accurate_ocr_provider
+            baidu_accurate_provider = create_baidu_accurate_ocr_provider()
+            if baidu_accurate_provider:
+                baidu_accurate_ocr_extractor = BaiduAccurateOCRElementExtractor(baidu_accurate_provider)
+                logger.info("✅ 百度高精度OCR提取器已创建")
+        except Exception as e:
+            logger.warning(f"无法初始化百度高精度OCR: {e}")
+        
         # 使用注册表的工厂方法创建默认配置
         return ExtractorRegistry.create_default(
             mineru_extractor=mineru_extractor,
-            baidu_ocr_extractor=baidu_ocr_extractor
+            baidu_ocr_extractor=baidu_ocr_extractor,
+            baidu_accurate_ocr_extractor=baidu_accurate_ocr_extractor
         )
+    
+    @staticmethod
+    def create_baidu_accurate_ocr_extractor(
+        baidu_accurate_ocr_provider: Optional[Any] = None
+    ) -> Optional[BaiduAccurateOCRElementExtractor]:
+        """
+        创建百度高精度OCR提取器
+        
+        Args:
+            baidu_accurate_ocr_provider: 百度高精度OCR Provider实例（可选，自动创建）
+        
+        Returns:
+            BaiduAccurateOCRElementExtractor实例，如果不可用则返回None
+        """
+        if baidu_accurate_ocr_provider is None:
+            try:
+                from services.ai_providers.ocr import create_baidu_accurate_ocr_provider
+                baidu_accurate_ocr_provider = create_baidu_accurate_ocr_provider()
+            except Exception as e:
+                logger.warning(f"无法初始化百度高精度OCR Provider: {e}")
+                return None
+        
+        if baidu_accurate_ocr_provider is None:
+            return None
+        
+        return BaiduAccurateOCRElementExtractor(baidu_accurate_ocr_provider)
+    
+    @staticmethod
+    def create_hybrid_extractor(
+        parser_service: Any,
+        upload_folder: Path,
+        baidu_accurate_ocr_provider: Optional[Any] = None,
+        contain_threshold: float = 0.8,
+        intersection_threshold: float = 0.3
+    ) -> Optional[HybridElementExtractor]:
+        """
+        创建混合元素提取器
+        
+        混合提取器结合MinerU版面分析和百度高精度OCR：
+        - MinerU负责识别元素类型和整体布局
+        - 百度OCR负责精确的文字识别和定位
+        
+        合并策略：
+        1. 图片类型bbox里包含的百度OCR bbox → 删除（图片内的文字不需要单独提取）
+        2. 表格类型bbox里包含的百度OCR bbox → 保留百度OCR结果，删除MinerU表格bbox
+        3. 其他类型（文字等）与百度OCR bbox有交集 → 使用百度OCR结果，删除MinerU bbox
+        
+        Args:
+            parser_service: MinerU解析服务实例
+            upload_folder: 上传文件夹路径
+            baidu_accurate_ocr_provider: 百度高精度OCR Provider实例（可选，自动创建）
+            contain_threshold: 包含判断阈值，默认0.8（80%面积在内部算包含）
+            intersection_threshold: 交集判断阈值，默认0.3（30%重叠算有交集）
+        
+        Returns:
+            HybridElementExtractor实例，如果无法创建则返回None
+        """
+        # 创建MinerU提取器
+        mineru_extractor = MinerUElementExtractor(parser_service, upload_folder)
+        logger.info("✅ MinerU提取器已创建（用于混合提取）")
+        
+        # 创建百度高精度OCR提取器
+        baidu_ocr_extractor = ExtractorFactory.create_baidu_accurate_ocr_extractor(
+            baidu_accurate_ocr_provider
+        )
+        
+        if baidu_ocr_extractor is None:
+            logger.warning("无法创建百度高精度OCR提取器，混合提取器创建失败")
+            return None
+        
+        logger.info("✅ 百度高精度OCR提取器已创建（用于混合提取）")
+        
+        return HybridElementExtractor(
+            mineru_extractor=mineru_extractor,
+            baidu_ocr_extractor=baidu_ocr_extractor,
+            contain_threshold=contain_threshold,
+            intersection_threshold=intersection_threshold
+        )
+    
+    @staticmethod
+    def create_hybrid_extractor_registry(
+        parser_service: Any,
+        upload_folder: Path,
+        baidu_table_ocr_provider: Optional[Any] = None,
+        baidu_accurate_ocr_provider: Optional[Any] = None,
+        contain_threshold: float = 0.8,
+        intersection_threshold: float = 0.3
+    ) -> ExtractorRegistry:
+        """
+        创建使用混合提取器的注册表
+        
+        默认配置：
+        - 所有类型 → 混合提取器（如果可用）
+        - 回退到MinerU（如果混合提取器不可用）
+        
+        Args:
+            parser_service: MinerU解析服务实例
+            upload_folder: 上传文件夹路径
+            baidu_table_ocr_provider: 百度表格OCR Provider实例（可选）
+            baidu_accurate_ocr_provider: 百度高精度OCR Provider实例（可选）
+            contain_threshold: 包含判断阈值
+            intersection_threshold: 交集判断阈值
+        
+        Returns:
+            配置好的ExtractorRegistry实例
+        """
+        # 创建MinerU提取器作为回退
+        mineru_extractor = MinerUElementExtractor(parser_service, upload_folder)
+        logger.info("✅ MinerU提取器已创建")
+        
+        # 尝试创建混合提取器
+        hybrid_extractor = ExtractorFactory.create_hybrid_extractor(
+            parser_service=parser_service,
+            upload_folder=upload_folder,
+            baidu_accurate_ocr_provider=baidu_accurate_ocr_provider,
+            contain_threshold=contain_threshold,
+            intersection_threshold=intersection_threshold
+        )
+        
+        # 尝试创建百度表格OCR提取器
+        baidu_table_ocr_extractor = None
+        if baidu_table_ocr_provider is None:
+            try:
+                from services.ai_providers.ocr import create_baidu_table_ocr_provider
+                baidu_provider = create_baidu_table_ocr_provider()
+                if baidu_provider:
+                    from .extractors import BaiduOCRElementExtractor
+                    baidu_table_ocr_extractor = BaiduOCRElementExtractor(baidu_provider)
+                    logger.info("✅ 百度表格OCR提取器已创建")
+            except Exception as e:
+                logger.warning(f"无法初始化百度表格OCR: {e}")
+        else:
+            from .extractors import BaiduOCRElementExtractor
+            baidu_table_ocr_extractor = BaiduOCRElementExtractor(baidu_table_ocr_provider)
+            logger.info("✅ 百度表格OCR提取器已创建")
+        
+        # 创建注册表
+        registry = ExtractorRegistry()
+        
+        # 设置默认提取器
+        if hybrid_extractor:
+            registry.register_default(hybrid_extractor)
+            logger.info("✅ 使用混合提取器作为默认提取器")
+        else:
+            registry.register_default(mineru_extractor)
+            logger.info("⚠️ 混合提取器不可用，回退到MinerU提取器")
+        
+        # 表格类型使用百度表格OCR（如果可用）
+        if baidu_table_ocr_extractor:
+            registry.register_types(list(ExtractorRegistry.TABLE_TYPES), baidu_table_ocr_extractor)
+        
+        return registry
 
 
 class InpaintProviderFactory:

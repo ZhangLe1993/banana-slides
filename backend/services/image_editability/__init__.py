@@ -47,7 +47,15 @@ from .extractors import (
     ElementExtractor,
     MinerUElementExtractor,
     BaiduOCRElementExtractor,
+    BaiduAccurateOCRElementExtractor,
     ExtractorRegistry
+)
+
+# 混合提取器
+from .hybrid_extractor import (
+    HybridElementExtractor,
+    BBoxUtils,
+    create_hybrid_extractor
 )
 
 # Inpaint提供者
@@ -88,7 +96,12 @@ __all__ = [
     'ElementExtractor',
     'MinerUElementExtractor',
     'BaiduOCRElementExtractor',
+    'BaiduAccurateOCRElementExtractor',
     'ExtractorRegistry',
+    # 混合提取器
+    'HybridElementExtractor',
+    'BBoxUtils',
+    'create_hybrid_extractor',
     # Inpaint提供者
     'InpaintProvider',
     'DefaultInpaintProvider',
