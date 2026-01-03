@@ -357,9 +357,7 @@ class ExportService:
                     )
                     return  # Table added successfully
             except Exception as e:
-                logger.error(f"Failed to add table cells: {str(e)}, falling back to image")
-                import traceback
-                traceback.print_exc()
+                logger.exception("Failed to add table cells, falling back to image")
                 # Fall through to add as image instead
         
         # Check if this is a table with HTML data (legacy)

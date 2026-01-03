@@ -221,8 +221,9 @@ def export_editable_pptx(project_id):
         max_workers = data.get('max_workers', 4)
         
         # Validate parameters
-        if not isinstance(max_depth, int) or max_depth < 0 or max_depth > 5:
-            return bad_request("max_depth must be an integer between 0 and 5")
+        # max_depth >= 1: 至少处理表层元素
+        if not isinstance(max_depth, int) or max_depth < 1 or max_depth > 5:
+            return bad_request("max_depth must be an integer between 1 and 5")
         
         if not isinstance(max_workers, int) or max_workers < 1 or max_workers > 16:
             return bad_request("max_workers must be an integer between 1 and 16")

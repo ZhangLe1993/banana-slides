@@ -6,8 +6,6 @@ import logging
 import base64
 import json
 import requests
-import hashlib
-import hmac
 from datetime import datetime
 from io import BytesIO
 from typing import Optional
@@ -68,12 +66,6 @@ class VolcengineInpaintingProvider:
             image.save(buffered, format="JPEG", quality=85)
         
         return base64.b64encode(buffered.getvalue()).decode('utf-8')
-    
-    def _create_signature(self, method: str, path: str, query: str, headers: dict, body: str) -> str:
-        """创建API v4签名（简化版）"""
-        # 这里使用简化签名，实际可能需要完整实现
-        # 但基于用户的AK/SK应该已经有权限
-        return ""
     
     @retry(
         stop=stop_after_attempt(3),  # 最多重试3次
@@ -238,32 +230,3 @@ class VolcengineInpaintingProvider:
             logger.error(f"❌ Inpainting失败: {str(e)}", exc_info=True)
             return None
     
-    def inpaint_with_retry(
-        self,
-        original_image: Image.Image,
-        mask_image: Image.Image,
-        max_retries: int = 2,  # 减少重试次数
-        retry_delay: int = 1,
-        full_page_image: Optional[Image.Image] = None,
-        crop_box: Optional[tuple] = None
-    ) -> Optional[Image.Image]:
-        """带重试的inpaint调用（full_page_image 和 crop_box 参数仅用于兼容性，火山引擎不使用）"""
-        import time
-        
-        for attempt in range(max_retries):
-            try:
-                result = self.inpaint_image(original_image, mask_image)
-                if result is not None:
-                    return result
-                    
-                if attempt < max_retries - 1:
-                    logger.warning(f"⚠️ 第{attempt + 1}次失败，{retry_delay}秒后重试...")
-                    time.sleep(retry_delay)
-                    
-            except Exception as e:
-                logger.error(f"第{attempt + 1}次出错: {str(e)}")
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-        
-        logger.error(f"❌ {max_retries}次尝试全部失败")
-        return None
