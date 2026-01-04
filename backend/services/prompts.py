@@ -749,18 +749,30 @@ def get_text_attribute_extraction_prompt(content_hint: str = "") -> str:
     Returns:
         格式化后的 prompt 字符串
     """
-    prompt = """分析这张图片中的文字样式，返回JSON格式的结果。
+    prompt = """你的任务是分析这张图片中的文字样式，并返回JSON格式的结果。
 
 {content_hint}
 
-请分析图片中的文字并返回以下属性：
-1. font_color: 字体颜色的十六进制值，格式为 "#RRGGBB"，如 "#FF6B6B"、"#000000"
+注意事项：
+- 一行文字可能包含多种不同颜色，请仔细观察每个字/词的实际颜色，将文字按颜色分割成片段。
+- 如果整行文字只有一种颜色，返回一个片段即可，text 为完整的原始文字内容
+- 如果有多种颜色，按照原始文字的顺序分割成多个片段，每个片段对应一种颜色
+- 相邻的相同颜色文字应合并为一个片段
+- 所有片段的 text 拼接起来应该等于原始文字内容
 
+字段说明：
+- colored_segments: 带颜色的文字片段数组，每个片段包含：
+  - text: 该片段的文字内容
+  - color: 该片段的颜色，十六进制格式 "#RRGGBB"
 
-只返回JSON对象，不要包含其他文字：
+只返回JSON对象，不要包含任何其他文字。
+示例：
 ```json
 {{
-    "font_color": "#RRGGBB",
+    "colored_segments": [
+        {{"text": "文字1", "color": "#FF0000"}},
+        {{"text": "文字2", "color": "#0000FF"}}
+    ]
 }}
 ```
 """.format(content_hint=content_hint)
