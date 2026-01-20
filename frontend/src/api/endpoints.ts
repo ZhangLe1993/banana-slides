@@ -833,49 +833,83 @@ export const resetSettings = async (): Promise<ApiResponse<Settings>> => {
 };
 
 /**
- * 测试百度 OCR 服务
+ * 验证 API key 是否可用
  */
-export const testBaiduOcr = async (): Promise<ApiResponse<{ recognized_text: string }>> => {
-  const response = await apiClient.post<ApiResponse<{ recognized_text: string }>>('/api/settings/tests/baidu-ocr');
+export const verifyApiKey = async (): Promise<ApiResponse<{ available: boolean; message: string }>> => {
+  const response = await apiClient.post<ApiResponse<{ available: boolean; message: string }>>('/api/settings/verify');
+  return response.data;
+};
+
+/**
+ * 可选的测试设置类型
+ */
+export interface TestSettingsOverride {
+  api_key?: string;
+  api_base_url?: string;
+  text_model?: string;
+  image_model?: string;
+  image_caption_model?: string;
+  mineru_api_base?: string;
+  mineru_token?: string;
+  baidu_ocr_api_key?: string;
+  ai_provider_format?: 'openai' | 'gemini';
+  image_resolution?: string;
+  enable_text_reasoning?: boolean;
+  text_thinking_budget?: number;
+  enable_image_reasoning?: boolean;
+  image_thinking_budget?: number;
+}
+
+/**
+ * 测试百度 OCR 服务
+ * @param settings 可选的设置覆盖（未保存的设置）
+ */
+export const testBaiduOcr = async (settings?: TestSettingsOverride): Promise<ApiResponse<{ recognized_text: string }>> => {
+  const response = await apiClient.post<ApiResponse<{ recognized_text: string }>>('/api/settings/tests/baidu-ocr', settings || {});
   return response.data;
 };
 
 /**
  * 测试文本生成模型
+ * @param settings 可选的设置覆盖（未保存的设置）
  */
-export const testTextModel = async (): Promise<ApiResponse<{ reply: string }>> => {
-  const response = await apiClient.post<ApiResponse<{ reply: string }>>('/api/settings/tests/text-model');
+export const testTextModel = async (settings?: TestSettingsOverride): Promise<ApiResponse<{ reply: string }>> => {
+  const response = await apiClient.post<ApiResponse<{ reply: string }>>('/api/settings/tests/text-model', settings || {});
   return response.data;
 };
 
 /**
  * 测试图片识别模型
+ * @param settings 可选的设置覆盖（未保存的设置）
  */
-export const testCaptionModel = async (): Promise<ApiResponse<{ caption: string }>> => {
-  const response = await apiClient.post<ApiResponse<{ caption: string }>>('/api/settings/tests/caption-model');
+export const testCaptionModel = async (settings?: TestSettingsOverride): Promise<ApiResponse<{ caption: string }>> => {
+  const response = await apiClient.post<ApiResponse<{ caption: string }>>('/api/settings/tests/caption-model', settings || {});
   return response.data;
 };
 
 /**
  * 测试百度图像修复
+ * @param settings 可选的设置覆盖（未保存的设置）
  */
-export const testBaiduInpaint = async (): Promise<ApiResponse<{ image_size: [number, number] }>> => {
-  const response = await apiClient.post<ApiResponse<{ image_size: [number, number] }>>('/api/settings/tests/baidu-inpaint');
+export const testBaiduInpaint = async (settings?: TestSettingsOverride): Promise<ApiResponse<{ image_size: [number, number] }>> => {
+  const response = await apiClient.post<ApiResponse<{ image_size: [number, number] }>>('/api/settings/tests/baidu-inpaint', settings || {});
   return response.data;
 };
 
 /**
  * 测试图像生成模型
+ * @param settings 可选的设置覆盖（未保存的设置）
  */
-export const testImageModel = async (): Promise<ApiResponse<{ image_size: [number, number] }>> => {
-  const response = await apiClient.post<ApiResponse<{ image_size: [number, number] }>>('/api/settings/tests/image-model');
+export const testImageModel = async (settings?: TestSettingsOverride): Promise<ApiResponse<{ image_size: [number, number] }>> => {
+  const response = await apiClient.post<ApiResponse<{ image_size: [number, number] }>>('/api/settings/tests/image-model', settings || {});
   return response.data;
 };
 
 /**
  * 测试 MinerU PDF 解析
+ * @param settings 可选的设置覆盖（未保存的设置）
  */
-export const testMineruPdf = async (): Promise<ApiResponse<{ batch_id: string; extract_id: string; content_preview: string }>> => {
-  const response = await apiClient.post<ApiResponse<{ batch_id: string; extract_id: string; content_preview: string }>>('/api/settings/tests/mineru-pdf');
+export const testMineruPdf = async (settings?: TestSettingsOverride): Promise<ApiResponse<{ batch_id: string; extract_id: string; content_preview: string }>> => {
+  const response = await apiClient.post<ApiResponse<{ batch_id: string; extract_id: string; content_preview: string }>>('/api/settings/tests/mineru-pdf', settings || {});
   return response.data;
 };
