@@ -330,7 +330,7 @@ def generate_material_image(project_id):
                 file_service,
                 ref_path_str,
                 additional_ref_images if additional_ref_images else None,
-                current_app.config['DEFAULT_ASPECT_RATIO'],
+                (project.image_aspect_ratio if project else None) or current_app.config.get('DEFAULT_ASPECT_RATIO', '16:9'),
                 current_app.config['DEFAULT_RESOLUTION'],
                 temp_dir_str,
                 app
