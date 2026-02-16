@@ -64,7 +64,11 @@ def _calculate_image_dimensions(
     """
     aspect_ratios = {
         "16:9": (16, 9),
+        "9:16": (9, 16),
         "4:3": (4, 3),
+        "3:4": (3, 4),
+        "3:2": (3, 2),
+        "2:3": (2, 3),
         "1:1": (1, 1),
     }
     resolution_base = {
@@ -85,7 +89,18 @@ def _calculate_image_dimensions(
         base = max_dim
 
     # Calculate dimensions from aspect ratio
-    ratio = aspect_ratios.get(aspect_ratio, (16, 9))
+    ratio = aspect_ratios.get(aspect_ratio)
+    if not ratio:
+        # Parse arbitrary "W:H" format
+        parts = aspect_ratio.split(':')
+        if len(parts) == 2:
+            try:
+                ratio = (int(parts[0]), int(parts[1]))
+            except ValueError:
+                pass
+        if not ratio:
+            logger.warning(f"Unknown aspect_ratio '{aspect_ratio}', falling back to 16:9")
+            ratio = (16, 9)
     if ratio[0] >= ratio[1]:
         w = base
         h = int(base * ratio[1] / ratio[0])
@@ -149,6 +164,7 @@ class LazyLLMImageProvider(ImageProvider):
                        ) -> Optional[Image.Image]:
         # Calculate vendor-specific image dimensions
         w, h, size_str = _calculate_image_dimensions(resolution, aspect_ratio, self._source)
+        logger.info(f"[LazyLLM] aspect_ratio={aspect_ratio}, resolution={resolution}, size={size_str}")
         # Convert a PIL Image object to a file path: When passing a reference image to lazyllm, you need to input a path in string format.
         file_paths = None
         temp_paths = []
@@ -185,7 +201,7 @@ class LazyLLMImageProvider(ImageProvider):
             try:
                 with Image.open(image_path) as image:
                     result = image.copy()
-                logger.info(f'Successfully loaded image from: {image_path}')
+                logger.info(f'Successfully loaded image from: {image_path}, actual size: {result.size[0]}x{result.size[1]} (requested: {size_str})')
                 return result
             except Exception as e:
                 logger.error(f'Failed to load image: {e}')

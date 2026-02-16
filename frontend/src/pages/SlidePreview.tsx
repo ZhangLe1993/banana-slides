@@ -234,6 +234,16 @@ export const SlidePreview: React.FC = () => {
     currentProject?.image_aspect_ratio || '16:9'
   );
   const [isSavingAspectRatio, setIsSavingAspectRatio] = useState(false);
+  // 根据画面比例计算 CSS aspect-ratio
+  const aspectRatioStyle = useMemo(() => {
+    const parts = aspectRatio.split(':');
+    if (parts.length === 2) {
+      const w = parseInt(parts[0], 10);
+      const h = parseInt(parts[1], 10);
+      if (w > 0 && h > 0) return `${w}/${h}`;
+    }
+    return '16/9';
+  }, [aspectRatio]);
   // 1K分辨率警告对话框状态
   const [show1KWarningDialog, setShow1KWarningDialog] = useState(false);
   const [skip1KWarningChecked, setSkip1KWarningChecked] = useState(false);
@@ -324,10 +334,15 @@ export const SlidePreview: React.FC = () => {
         if (!isEditingTemplateStyle.current) {
           setTemplateStyle(currentProject.template_style || '');
         }
+        // 非文本输入的设置项，始终从服务器同步
+        setAspectRatio(currentProject.image_aspect_ratio || '16:9');
+        setExportExtractorMethod((currentProject.export_extractor_method as ExportExtractorMethod) || 'hybrid');
+        setExportInpaintMethod((currentProject.export_inpaint_method as ExportInpaintMethod) || 'hybrid');
+        setExportAllowPartial(currentProject.export_allow_partial || false);
       }
       // 如果用户正在编辑，则不更新本地状态
     }
-  }, [currentProject?.id, currentProject?.extra_requirements, currentProject?.template_style]);
+  }, [currentProject?.id, currentProject?.extra_requirements, currentProject?.template_style, currentProject?.image_aspect_ratio, currentProject?.export_extractor_method, currentProject?.export_inpaint_method, currentProject?.export_allow_partial]);
 
   // 加载当前页面的历史版本
   useEffect(() => {
@@ -1483,6 +1498,7 @@ export const SlidePreview: React.FC = () => {
                       }}
                       onDelete={() => page.id && deletePageById(page.id)}
                       isGenerating={page.id ? !!pageGeneratingTasks[page.id] : false}
+                      aspectRatio={aspectRatio}
                     />
                   </div>
                 </div>
@@ -1517,7 +1533,7 @@ export const SlidePreview: React.FC = () => {
               {/* 预览区 */}
               <div className="flex-1 overflow-y-auto min-h-0 flex items-center justify-center p-4 md:p-8">
                 <div className="max-w-5xl w-full">
-                  <div className="relative aspect-video bg-white dark:bg-background-secondary rounded-lg shadow-xl overflow-hidden touch-manipulation">
+                  <div className="relative bg-white dark:bg-background-secondary rounded-lg shadow-xl overflow-hidden touch-manipulation" style={{ aspectRatio: aspectRatioStyle }}>
                     {selectedPage?.generated_image_path ? (
                       <img
                         src={imageUrl}
@@ -1703,7 +1719,8 @@ export const SlidePreview: React.FC = () => {
         <div className="space-y-4">
           {/* 图片（支持矩形区域选择） */}
           <div
-            className="aspect-video bg-gray-100 dark:bg-background-secondary rounded-lg overflow-hidden relative"
+            className="bg-gray-100 dark:bg-background-secondary rounded-lg overflow-hidden relative"
+            style={{ aspectRatio: aspectRatioStyle }}
             onMouseDown={handleSelectionMouseDown}
             onMouseMove={handleSelectionMouseMove}
             onMouseUp={handleSelectionMouseUp}
